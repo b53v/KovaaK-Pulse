@@ -15,8 +15,9 @@ fn main() -> iced::Result {
         .theme(App::theme)
         .default_font(theme::FONT_REGULAR)
         .window(window::Settings {
-            size: Size::new(1360.0, 840.0),
-            min_size: Some(Size::new(1040.0, 660.0)),
+            size: Size::new(380.0, 560.0),
+            min_size: Some(Size::new(340.0, 400.0)),
+            resizable: true,
             exit_on_close_request: false,
             ..window::Settings::default()
         })

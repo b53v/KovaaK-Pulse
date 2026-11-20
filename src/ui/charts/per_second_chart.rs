@@ -23,9 +23,9 @@ impl PerSecondBarMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            PerSecondBarMode::Score => "每秒得分",
-            PerSecondBarMode::Kps => "每秒击杀 (KPS)",
-            PerSecondBarMode::DamageEff => "伤害效率 %",
+            PerSecondBarMode::Score => "得分",
+            PerSecondBarMode::Kps => "KPS",
+            PerSecondBarMode::DamageEff => "效率%",
         }
     }
 }
@@ -98,10 +98,10 @@ impl<'a, Message> canvas::Program<Message> for PerSecondChart<'a> {
     }
 }
 
-const PAD_LEFT: f32 = 52.0;
-const PAD_RIGHT: f32 = 46.0;
-const PAD_TOP: f32 = 22.0;
-const PAD_BOTTOM: f32 = 28.0;
+const PAD_LEFT: f32 = 38.0;
+const PAD_RIGHT: f32 = 34.0;
+const PAD_TOP: f32 = 18.0;
+const PAD_BOTTOM: f32 = 22.0;
 
 fn compute_hover_index(len: usize, bounds: Rectangle, cursor: mouse::Cursor) -> Option<usize> {
     if len == 0 {
@@ -332,15 +332,15 @@ impl<'a> PerSecondChart<'a> {
         }
 
         // X-axis tick labels
-        let label_every = (n / 10).max(1);
+        let label_every = (n / 6).max(1);
         for (i, tick) in self.ticks.iter().enumerate() {
             if i % label_every == 0 || i == n - 1 {
                 let cx = PAD_LEFT + (i as f32 + 0.5) * step;
                 frame.fill_text(Text {
                     content: format!("{}s", tick.time_offset_s.round() as i32),
-                    position: Point::new(cx, PAD_TOP + plot_h + 8.0),
+                    position: Point::new(cx, PAD_TOP + plot_h + 6.0),
                     color: theme::TEXT_MUTED,
-                    size: 10.5.into(),
+                    size: 9.5.into(),
                     font: theme::FONT_REGULAR,
                     align_x: text::Alignment::Center,
                     align_y: alignment::Vertical::Top,
@@ -351,10 +351,10 @@ impl<'a> PerSecondChart<'a> {
 
         // Top legend
         frame.fill_text(Text {
-            content: format!("■ {}   ● 准度 % (均值 {:.1}%)", self.mode.label(), self.avg_accuracy),
-            position: Point::new(PAD_LEFT, 4.0),
+            content: format!("■ {}  ● 准度% (均{:.0}%)", self.mode.label(), self.avg_accuracy),
+            position: Point::new(PAD_LEFT, 2.0),
             color: theme::TEXT_SECONDARY,
-            size: 11.0.into(),
+            size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Top,

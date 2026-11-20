@@ -64,19 +64,6 @@ pub fn base_container(_theme: &Theme) -> container::Style {
     }
 }
 
-pub fn sidebar_container(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(BG_SURFACE)),
-        border: Border {
-            color: BORDER_SUBTLE,
-            width: 1.0,
-            radius: 0.0.into(),
-        },
-        text_color: Some(TEXT_PRIMARY),
-        ..Default::default()
-    }
-}
-
 pub fn topbar_container(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(BG_SURFACE)),

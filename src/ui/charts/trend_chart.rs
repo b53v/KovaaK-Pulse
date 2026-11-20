@@ -18,10 +18,10 @@ pub struct TrendChartState {
     hovered_index: Option<usize>,
 }
 
-const PAD_LEFT: f32 = 58.0;
-const PAD_RIGHT: f32 = 22.0;
-const PAD_TOP: f32 = 26.0;
-const PAD_BOTTOM: f32 = 30.0;
+const PAD_LEFT: f32 = 44.0;
+const PAD_RIGHT: f32 = 12.0;
+const PAD_TOP: f32 = 20.0;
+const PAD_BOTTOM: f32 = 22.0;
 
 impl<'a, Message> canvas::Program<Message> for TrendChart<'a> {
     type State = TrendChartState;
@@ -292,7 +292,7 @@ impl<'a> TrendChart<'a> {
 
         // X-axis date labels
         let n = self.analysis.points.len();
-        let label_step = (n / 6).max(1);
+        let label_step = (n / 4).max(1);
         for i in (0..n).step_by(label_step) {
             let pt = &self.analysis.points[i];
             let p = self.point_xy(size, i, pt.value);
@@ -302,10 +302,10 @@ impl<'a> TrendChart<'a> {
                 &pt.date_key
             };
             frame.fill_text(Text {
-                content: format!("#{} {}", i + 1, short_date),
-                position: Point::new(p.x, PAD_TOP + plot_h + 8.0),
+                content: short_date.to_string(),
+                position: Point::new(p.x, PAD_TOP + plot_h + 6.0),
                 color: theme::TEXT_MUTED,
-                size: 10.0.into(),
+                size: 9.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
                 align_y: alignment::Vertical::Top,
@@ -316,13 +316,12 @@ impl<'a> TrendChart<'a> {
         // Legend
         frame.fill_text(Text {
             content: format!(
-                "● 单局 {}   ━ MA{} 均线   --- PB 阶梯线   ┊ cm/360 变更",
-                self.metric.label(),
+                "● 单局  ━ MA{}  -- PB  ┊ cm/360",
                 self.ma_window
             ),
-            position: Point::new(PAD_LEFT, 4.0),
+            position: Point::new(PAD_LEFT, 2.0),
             color: theme::TEXT_SECONDARY,
-            size: 11.0.into(),
+            size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Top,

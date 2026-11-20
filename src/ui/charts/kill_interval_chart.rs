@@ -17,10 +17,10 @@ pub struct KillIntervalState {
     hovered_index: Option<usize>,
 }
 
-const PAD_LEFT: f32 = 52.0;
-const PAD_RIGHT: f32 = 20.0;
-const PAD_TOP: f32 = 22.0;
-const PAD_BOTTOM: f32 = 26.0;
+const PAD_LEFT: f32 = 42.0;
+const PAD_RIGHT: f32 = 12.0;
+const PAD_TOP: f32 = 18.0;
+const PAD_BOTTOM: f32 = 22.0;
 
 impl<'a, Message> canvas::Program<Message> for KillIntervalChart<'a> {
     type State = KillIntervalState;
@@ -228,14 +228,14 @@ impl<'a> KillIntervalChart<'a> {
 
         // X-axis labels
         let n = self.kills.len();
-        let step = (n / 8).max(1);
+        let step = (n / 5).max(1);
         for i in (0..n).step_by(step) {
             let pt = self.point_for(size, i, &self.kills[i]);
             frame.fill_text(Text {
                 content: format!("#{}", self.kills[i].kill_index),
-                position: Point::new(pt.x, PAD_TOP + plot_h + 7.0),
+                position: Point::new(pt.x, PAD_TOP + plot_h + 6.0),
                 color: theme::TEXT_MUTED,
-                size: 10.0.into(),
+                size: 9.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
                 align_y: alignment::Vertical::Top,
@@ -246,12 +246,12 @@ impl<'a> KillIntervalChart<'a> {
         // Legend
         frame.fill_text(Text {
             content: format!(
-                "● 一枪秒杀 (1-Shot)   ● 多枪补射   --- 平均间隔 {:.0}ms",
+                "● 1-Shot  ● 补射  -- 均 {:.0}ms",
                 self.avg_interval_ms
             ),
-            position: Point::new(PAD_LEFT, 4.0),
+            position: Point::new(PAD_LEFT, 2.0),
             color: theme::TEXT_SECONDARY,
-            size: 11.0.into(),
+            size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Top,

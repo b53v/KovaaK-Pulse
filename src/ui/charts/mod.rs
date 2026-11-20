@@ -17,30 +17,31 @@ pub fn draw_tooltip(
     title: &str,
     lines: &[(String, Color)],
 ) {
-    let line_h = 16.0_f32;
-    let padding = 10.0_f32;
+    let line_h = 14.0_f32;
+    let padding = 7.0_f32;
     let max_chars = lines
         .iter()
         .map(|(s, _)| s.chars().count())
         .chain(std::iter::once(title.chars().count()))
         .max()
-        .unwrap_or(12);
-    let box_w = (max_chars as f32 * 7.6 + padding * 2.0).clamp(150.0, 290.0);
-    let box_h = padding * 2.0 + 18.0 + (lines.len() as f32 * line_h);
+        .unwrap_or(10);
+    let max_allowed_w = (bounds.width - 12.0).max(120.0);
+    let box_w = (max_chars as f32 * 6.8 + padding * 2.0).clamp(120.0, max_allowed_w.min(230.0));
+    let box_h = padding * 2.0 + 15.0 + (lines.len() as f32 * line_h);
 
-    let mut x = anchor.x + 14.0;
-    if x + box_w > bounds.width - 8.0 {
-        x = (anchor.x - box_w - 14.0).max(8.0);
+    let mut x = anchor.x + 10.0;
+    if x + box_w > bounds.width - 6.0 {
+        x = (anchor.x - box_w - 10.0).max(6.0);
     }
     let mut y = anchor.y - box_h * 0.5;
-    if y < 8.0 {
-        y = 8.0;
+    if y < 6.0 {
+        y = 6.0;
     }
-    if y + box_h > bounds.height - 8.0 {
-        y = (bounds.height - box_h - 8.0).max(8.0);
+    if y + box_h > bounds.height - 6.0 {
+        y = (bounds.height - box_h - 6.0).max(6.0);
     }
 
-    let bg_path = Path::rounded_rectangle(Point::new(x, y), Size::new(box_w, box_h), 6.0.into());
+    let bg_path = Path::rounded_rectangle(Point::new(x, y), Size::new(box_w, box_h), 5.0.into());
     frame.fill(&bg_path, theme::TOOLTIP_BG);
     frame.stroke(
         &bg_path,
@@ -53,7 +54,7 @@ pub fn draw_tooltip(
         content: title.to_string(),
         position: Point::new(x + padding, y + padding),
         color: theme::ACCENT_CYAN,
-        size: 12.0.into(),
+        size: 10.5.into(),
         font: theme::FONT_BOLD,
         align_x: text::Alignment::Left,
         align_y: alignment::Vertical::Top,
@@ -63,9 +64,9 @@ pub fn draw_tooltip(
     for (i, (line, color)) in lines.iter().enumerate() {
         frame.fill_text(Text {
             content: line.clone(),
-            position: Point::new(x + padding, y + padding + 18.0 + i as f32 * line_h),
+            position: Point::new(x + padding, y + padding + 15.0 + i as f32 * line_h),
             color: *color,
-            size: 11.5.into(),
+            size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Top,

@@ -19,11 +19,11 @@ pub struct HeatmapState {
     hovered_slot: Option<(usize, usize)>, // (week_col, day_row)
 }
 
-const WEEKS: usize = 26;
-const PAD_LEFT: f32 = 34.0;
-const PAD_TOP: f32 = 24.0;
-const PAD_RIGHT: f32 = 16.0;
-const PAD_BOTTOM: f32 = 24.0;
+const WEEKS: usize = 18;
+const PAD_LEFT: f32 = 22.0;
+const PAD_TOP: f32 = 18.0;
+const PAD_RIGHT: f32 = 8.0;
+const PAD_BOTTOM: f32 = 20.0;
 
 impl<'a, Message> canvas::Program<Message> for HeatmapChart<'a> {
     type State = HeatmapState;
@@ -80,13 +80,13 @@ impl<'a, Message> canvas::Program<Message> for HeatmapChart<'a> {
 }
 
 fn grid_metrics(size: Size) -> (f32, f32, f32) {
-    let avail_w = (size.width - PAD_LEFT - PAD_RIGHT).max(100.0);
-    let avail_h = (size.height - PAD_TOP - PAD_BOTTOM).max(70.0);
+    let avail_w = (size.width - PAD_LEFT - PAD_RIGHT).max(80.0);
+    let avail_h = (size.height - PAD_TOP - PAD_BOTTOM).max(56.0);
     let cell_w = avail_w / WEEKS as f32;
     let cell_h = avail_h / 7.0;
-    let step = cell_w.min(cell_h).clamp(10.0, 22.0);
-    let gap = (step * 0.2).clamp(2.0, 4.0);
-    let cell_size = (step - gap).max(6.0);
+    let step = cell_w.min(cell_h).clamp(8.0, 20.0);
+    let gap = (step * 0.2).clamp(1.5, 3.5);
+    let cell_size = (step - gap).max(5.5);
     (step, cell_size, gap)
 }
 
