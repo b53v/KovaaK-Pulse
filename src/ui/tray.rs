@@ -1,6 +1,8 @@
 use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
+use crate::model::Language;
+
 /// Actions triggered by user interaction with the system tray.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayAction {
@@ -13,19 +15,31 @@ pub enum TrayAction {
 /// Never steals foreground focus when updating tooltip or run summaries.
 pub struct TrayController {
     _tray: Option<TrayIcon>,
-    show_id: Option<MenuId>,
-    sync_id: Option<MenuId>,
-    quit_id: Option<MenuId>,
+    show_item: MenuItem,
+    sync_item: MenuItem,
+    quit_item: MenuItem,
+    show_id: MenuId,
+    sync_id: MenuId,
+    quit_id: MenuId,
+}
+
+fn tray_labels(lang: Language) -> (&'static str, &'static str, &'static str, &'static str) {
+    match lang {
+        Language::Zh => ("打开 KovaaK Pulse", "立即同步本地记录", "退出", "KovaaK Pulse — 静默监测中"),
+        Language::En => ("Show KovaaK Pulse", "Sync Local Runs", "Quit", "KovaaK Pulse — Monitoring"),
+    }
 }
 
 impl TrayController {
     /// Initializes the system tray icon with an embedded procedural RGBA reticle icon.
     /// Gracefully degrades to a no-op controller if the platform tray is unavailable.
-    pub fn new() -> Self {
+    pub fn new(lang: Language) -> Self {
+        let (show_lbl, sync_lbl, quit_lbl, tooltip) = tray_labels(lang);
+
         let menu = Menu::new();
-        let show_item = MenuItem::new("打开 / Show KovaaK Pulse", true, None);
-        let sync_item = MenuItem::new("立即同步 / Sync Now", true, None);
-        let quit_item = MenuItem::new("退出 / Quit", true, None);
+        let show_item = MenuItem::new(show_lbl, true, None);
+        let sync_item = MenuItem::new(sync_lbl, true, None);
+        let quit_item = MenuItem::new(quit_lbl, true, None);
 
         let show_id = show_item.id().clone();
         let sync_id = sync_item.id().clone();
@@ -40,7 +54,7 @@ impl TrayController {
         let tray = match icon {
             Some(ic) => TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
-                .with_tooltip("KovaaK Pulse")
+                .with_tooltip(tooltip)
                 .with_icon(ic)
                 .build()
                 .ok(),
@@ -49,14 +63,26 @@ impl TrayController {
 
         Self {
             _tray: tray,
-            show_id: Some(show_id),
-            sync_id: Some(sync_id),
-            quit_id: Some(quit_id),
+            show_item,
+            sync_item,
+            quit_item,
+            show_id,
+            sync_id,
+            quit_id,
         }
     }
 
     pub fn is_active(&self) -> bool {
         self._tray.is_some()
+    }
+
+    /// Updates tray menu labels and default tooltip when the user switches UI language.
+    pub fn set_language(&self, lang: Language) {
+        let (show_lbl, sync_lbl, quit_lbl, tooltip) = tray_labels(lang);
+        self.show_item.set_text(show_lbl);
+        self.sync_item.set_text(sync_lbl);
+        self.quit_item.set_text(quit_lbl);
+        self.update_tooltip(tooltip);
     }
 
     /// Updates the tray hover tooltip with the latest run result without stealing game focus.
@@ -69,13 +95,13 @@ impl TrayController {
     /// Non-blocking poll for tray menu or left-click events.
     pub fn poll_action(&self) -> Option<TrayAction> {
         if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if self.show_id.as_ref() == Some(&event.id) {
+            if self.show_id == event.id {
                 return Some(TrayAction::ShowWindow);
             }
-            if self.sync_id.as_ref() == Some(&event.id) {
+            if self.sync_id == event.id {
                 return Some(TrayAction::SyncNow);
             }
-            if self.quit_id.as_ref() == Some(&event.id) {
+            if self.quit_id == event.id {
                 return Some(TrayAction::Quit);
             }
         }
@@ -122,7 +148,6 @@ pub fn reticle_rgba(size: u32) -> Vec<u8> {
             let ax = dx.abs();
             let ay = dy.abs();
 
-            // Signed distance to rounded rectangle
             let qx = (ax - inner_limit).max(0.0);
             let qy = (ay - inner_limit).max(0.0);
             let rr_dist = (qx * qx + qy * qy).sqrt() - corner_r;
@@ -132,7 +157,6 @@ pub fn reticle_rgba(size: u32) -> Vec<u8> {
                 continue;
             }
 
-            // Dark rounded-rect background (#0F1115) with subtle border (#252A34)
             if rr_dist > -1.2 {
                 rgba[idx] = 0x25;
                 rgba[idx + 1] = 0x2A;

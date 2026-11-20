@@ -1,4 +1,4 @@
-use crate::model::{Language, TimeRange, TrendMetric};
+use crate::model::{HalfSplitComparison, Language, TimeRange, TrendMetric};
 use crate::ui::app::ActiveTab;
 use crate::ui::charts::per_second_chart::PerSecondBarMode;
 use crate::ui::sidebar::ScenarioSort;
@@ -70,5 +70,36 @@ pub fn metric_short(metric: TrendMetric, lang: Language) -> &'static str {
         (TrendMetric::AvgTtkMs, Language::En) => "TTK",
         (TrendMetric::OneShotPct, Language::Zh) => "1-Shot",
         (TrendMetric::OneShotPct, Language::En) => "1-Shot",
+    }
+}
+
+pub fn half_split_diagnosis(hs: &HalfSplitComparison, lang: Language) -> String {
+    match lang {
+        Language::Zh => hs.diagnosis.clone(),
+        Language::En => {
+            if hs.accuracy_delta_pp <= -5.0 && hs.score_delta_pct <= -10.0 {
+                format!(
+                    "2nd-half accuracy dropped {:.1}pp — possible fatigue or rushing",
+                    hs.accuracy_delta_pp
+                )
+            } else if hs.accuracy_delta_pp >= 3.0 {
+                format!(
+                    "2nd-half accuracy rose +{:.1}pp — warming up steadily",
+                    hs.accuracy_delta_pp
+                )
+            } else if hs.kps_delta >= 0.3 {
+                format!(
+                    "2nd-half pace sped up (+{:.2} KPS) — strong finish",
+                    hs.kps_delta
+                )
+            } else if hs.kps_delta <= -0.3 {
+                format!(
+                    "2nd-half pace slowed ({:.2} KPS) — rhythm dipped late",
+                    hs.kps_delta
+                )
+            } else {
+                "Steady pacing & accuracy across both halves".to_string()
+            }
+        }
     }
 }

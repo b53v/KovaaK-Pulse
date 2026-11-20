@@ -18,7 +18,9 @@ use crate::ui::charts::heatmap::HeatmapChart;
 use crate::ui::charts::kill_interval_chart::KillIntervalChart;
 use crate::ui::charts::per_second_chart::{PerSecondBarMode, PerSecondChart};
 use crate::ui::charts::trend_chart::TrendChart;
-use crate::ui::i18n::{bar_mode_label, metric_short, t, tab_label, time_range_short};
+use crate::ui::i18n::{
+    bar_mode_label, half_split_diagnosis, metric_short, t, tab_label, time_range_short,
+};
 use crate::ui::sidebar::{ScenarioSort, view_scenario_picker};
 use crate::ui::theme::{self, UiPalette};
 use crate::ui::tray::{TrayAction, TrayController};
@@ -116,9 +118,6 @@ pub struct App {
     perf_dir_input: String,
 
     // Status & notifications (non-focus-stealing)
-    watcher_online: bool,
-    last_ingest_ms: Option<u64>,
-    watcher_error: bool,
     banner: Option<(String, Color)>,
     is_syncing: bool,
 
@@ -163,7 +162,7 @@ impl App {
             .or_else(|| watched_dirs.as_ref().map(|(_, p)| p.display().to_string()))
             .unwrap_or_default();
 
-        let tray = TrayController::new();
+        let tray = TrayController::new(config.language);
 
         let mut app = Self {
             config,
@@ -182,9 +181,6 @@ impl App {
             show_settings: false,
             stats_dir_input,
             perf_dir_input,
-            watcher_online: false,
-            last_ingest_ms: None,
-            watcher_error: false,
             banner: None,
             is_syncing: false,
             scenarios: Vec::new(),
@@ -223,19 +219,6 @@ impl App {
 
     fn lang(&self) -> Language {
         self.config.language
-    }
-
-    fn watcher_status_text(&self) -> String {
-        let lang = self.lang();
-        if self.watcher_error {
-            t(lang, "异常", "Error").to_string()
-        } else if self.watched_dirs.is_none() {
-            t(lang, "未配置目录", "No folder").to_string()
-        } else if let Some(ms) = self.last_ingest_ms {
-            format!("{:.2}s", ms as f64 / 1000.0)
-        } else {
-            t(lang, "监听中", "Live").to_string()
-        }
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -435,6 +418,8 @@ impl App {
                 if self.config.language != new_lang {
                     self.config.language = new_lang;
                     let _ = save_config(&self.config);
+                    self.banner = None;
+                    self.tray.set_language(new_lang);
                     self.clear_chart_caches();
                 }
                 Task::none()
@@ -482,11 +467,7 @@ impl App {
                 }
             }
             Message::Watcher(ev) => match ev {
-                WatcherEvent::WatcherReady { .. } => {
-                    self.watcher_online = true;
-                    self.watcher_error = false;
-                    Task::none()
-                }
+                WatcherEvent::WatcherReady { .. } => Task::none(),
                 WatcherEvent::SyncCompleted { imported, .. } => {
                     if imported > 0 {
                         self.reload_all_data(None);
@@ -503,9 +484,6 @@ impl App {
                     elapsed_ms,
                 } => {
                     // Never steal foreground focus over KovaaK's!
-                    self.watcher_online = true;
-                    self.watcher_error = false;
-                    self.last_ingest_ms = Some(elapsed_ms);
                     self.selected_scenario = Some(scenario.clone());
                     self.reload_all_data(Some(run_id));
 
@@ -533,9 +511,10 @@ impl App {
                     Task::none()
                 }
                 WatcherEvent::Error(err) => {
-                    self.watcher_online = false;
-                    self.watcher_error = true;
-                    self.banner = Some((format!("{}: {}", t(lang, "监听异常", "Watcher error"), err), p.semantic_red));
+                    self.banner = Some((
+                        format!("{}: {}", t(lang, "监听异常", "Watcher error"), err),
+                        p.semantic_red,
+                    ));
                     Task::none()
                 }
             },
@@ -745,12 +724,6 @@ impl App {
     }
 
     fn view_compact_header(&self, p: UiPalette, lang: Language) -> Element<'_, Message> {
-        let dot_color = if self.watcher_online {
-            p.semantic_green
-        } else {
-            p.text_muted
-        };
-
         let sync_label = if self.is_syncing { "…" } else { "↻" };
 
         let mut status_row = row![
@@ -758,9 +731,6 @@ impl App {
                 .size(13.5)
                 .font(theme::FONT_BOLD)
                 .color(p.text_primary),
-            Space::new().width(4),
-            text("●").size(8).color(dot_color),
-            text(self.watcher_status_text()).size(10.5).color(p.text_muted),
             Space::new().width(Length::Fill),
             button(text(sync_label).size(12.5))
                 .padding([3, 7])
@@ -1271,7 +1241,9 @@ impl App {
                             .font(theme::FONT_BOLD)
                             .color(p.text_primary),
                         Space::new().width(Length::Fill),
-                        text(&hs.diagnosis).size(10.5).color(p.text_secondary),
+                        text(half_split_diagnosis(hs, lang))
+                            .size(10.5)
+                            .color(p.text_secondary),
                     ]
                     .align_y(Alignment::Center),
                     compact_half_row(
