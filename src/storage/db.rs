@@ -168,7 +168,10 @@ impl Database {
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
+             PRAGMA busy_timeout = 5000;
+             PRAGMA cache_size = -512;
+             PRAGMA temp_store = MEMORY;
+             PRAGMA mmap_size = 0;",
         )
         .map_err(|e| format!("Failed to set SQLite PRAGMAs: {e}"))?;
         conn.execute_batch(SCHEMA_SQL)
@@ -427,6 +430,7 @@ impl Database {
             }
         }
 
+        let _ = self.conn.execute_batch("PRAGMA shrink_memory;");
         Ok((imported, skipped))
     }
 
@@ -500,6 +504,7 @@ impl Database {
             });
         }
 
+        summaries.shrink_to_fit();
         Ok(summaries)
     }
 
@@ -519,10 +524,11 @@ impl Database {
         let rows = stmt
             .query_map(params![scenario, limit as i64], row_to_run_record)
             .map_err(|e| format!("Query failed: {e}"))?;
-        let mut out = Vec::new();
+        let mut out = Vec::with_capacity(limit.min(64));
         for r in rows {
             out.push(r.map_err(|e| format!("Row error: {e}"))?);
         }
+        out.shrink_to_fit();
         Ok(out)
     }
 
@@ -842,6 +848,7 @@ impl Database {
         for r in rows {
             out.push(r.map_err(|e| format!("Tick row error: {e}"))?);
         }
+        out.shrink_to_fit();
         Ok(out)
     }
 
@@ -881,6 +888,7 @@ impl Database {
         for r in rows {
             out.push(r.map_err(|e| format!("Kill row error: {e}"))?);
         }
+        out.shrink_to_fit();
         Ok(out)
     }
 }

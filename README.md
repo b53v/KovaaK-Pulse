@@ -6,7 +6,8 @@
 *Lightweight, zero-overhead native Windows companion widget for real-time KovaaK's post-run analysis and long-term aim progression.*
 
 [![Rust Edition 2024](https://img.shields.io/badge/Rust-Edition%202024-000000?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![iced 0.14 wgpu](https://img.shields.io/badge/GUI-iced%200.14%20(wgpu)-60A5FA?style=flat-square)](https://iced.rs/)
+[![iced 0.14 tiny-skia](https://img.shields.io/badge/GUI-iced%200.14%20(tiny--skia)-60A5FA?style=flat-square)](https://iced.rs/)
+[![Memory ~24MB](https://img.shields.io/badge/Memory-~24MB%20WS%20%2F%208MB%20Private-34D399?style=flat-square)](#核心亮点)
 [![Windows x64](https://img.shields.io/badge/Platform-Windows%20x64-0078D6?style=flat-square&logo=windows&logoColor=white)](#building--testing)
 [![E2E Latency ~215ms](https://img.shields.io/badge/E2E%20Latency-~215ms-34D399?style=flat-square)](#architecture)
 [![License](https://img.shields.io/github/license/b53v/KovaaK-Pulse?style=flat-square)](LICENSE)
@@ -19,13 +20,13 @@
 
 ## ✨ 核心亮点
 
-KovaaK Pulse 编译为单个原生 `.exe`（~12.5 MB，无 Python 运行时、无 Electron / Chromium 进程），专为高帧率竞技玩家打造：
+KovaaK Pulse 编译为单个原生 `.exe`（**仅 ~7.0 MB**，工作集内存 **~24 MB** / 私有内存 **~8 MB**，无 Python 运行时、无 Electron / Chromium 进程），专为高帧率竞技玩家打造：
 
 | 特性 | 说明 |
 | :--- | :--- |
 | **380 × 560 紧凑可滚动小组件** | 类 Windows 11 日历 Flyout 尺寸的单列纵向滚动面板，极简黑白灰配色 + 严格 4 层数据主次层级，不占屏幕空间。 |
 | **~215 ms 完赛自动出图** | 基于 Windows 原生 `ReadDirectoryChangesW` (`notify`) 内核监听 + `.csv`/`.perf` 双文件稳定防抖 + 纯 Rust 零依赖 Proto3 线协议解码器，端到端入库出图仅需 **~0.22 秒**。 |
-| **1000+ FPS 零干扰 & 真隐藏到托盘** | 无轮询、后台空载 CPU ≈ 0%；关闭窗口真正隐藏至系统托盘（`window::Mode::Hidden`，不在任务栏残留），完赛刷新不抢游戏前台焦点。 |
+| **极致低占用（~24 MB 内存 & 0.00% 空载 CPU）** | 采用 `tiny-skia` 轻量渲染器（无需加载百兆 DX12/GPU 驱动上下文）+ 事件驱动托盘流（0 空闲唤醒）+ Win32 工作集自动裁剪，关闭窗口真正隐藏至系统托盘（`window::Mode::Hidden`），完赛刷新不抢游戏前台焦点。 |
 | **实时双语 & 深浅主题切换** | 设置页一键切换 **中文 / English** 与 **深色 / 浅色** 主题，所有卡片、自绘 `Canvas` 图表与系统托盘菜单即时同步并持久化。 |
 | **自动路径探测 & 嵌入式存储** | 自动解析 Windows 注册表与 Steam `libraryfolders.vdf` 定位 KovaaK's 目录；本地 SQLite (WAL) 去重入库，万局历史秒开。 |
 
@@ -85,8 +86,8 @@ flowchart LR
         SQLITE["SQLite WAL\n(kovaak_pulse.db)"]
     end
 
-    subgraph UI["Native GUI (< 15ms)"]
-        ICED["iced 0.14 (wgpu DX12)\nCustom Canvas Charts"]
+    subgraph UI["Native GUI (< 15ms, ~24MB RAM)"]
+        ICED["iced 0.14 (tiny-skia)\nCustom Canvas Charts"]
         TRAY["System Tray\n(True Hide-to-Tray)"]
     end
 
@@ -163,16 +164,16 @@ cargo test -- --nocapture
 cargo build --release
 ```
 
-The standalone executable is generated at `target\release\kovaak-pulse.exe` (~12.5 MB).
+The standalone executable is generated at `target\release\kovaak-pulse.exe` (~7.0 MB).
 
 ---
 
 ## 🌐 English Overview
 
-**KovaaK Pulse** is a compact (`380 × 560` vertically scrollable) native Windows desktop widget written in **Rust** and **iced 0.14 (`wgpu`)** for **KovaaK's** aim trainer.
+**KovaaK Pulse** is a compact (`380 × 560` vertically scrollable) native Windows desktop widget written in **Rust** and **iced 0.14 (`tiny-skia`)** for **KovaaK's** aim trainer.
 
 - **Instant Post-Run Feedback (~215 ms)**: Watches `stats/*.csv` and `performances/*.perf` using Windows `ReadDirectoryChangesW` with paired debouncing and a zero-dependency Proto3 `.perf` decoder, persisting runs to an embedded SQLite (WAL) database.
-- **Zero In-Game Interference**: Compiles to a single native binary with ~0% idle CPU, true hide-to-tray (`window::Mode::Hidden`), and non-intrusive background refresh that never steals focus during gameplay.
+- **Ultra-Low Footprint (~24 MB Working Set / ~8 MB Private RAM / 0.00% Idle CPU)**: Compiles to a single ~7.0 MB native binary with event-driven tray subscriptions (zero idle GUI wakeups), Win32 working-set trimming, true hide-to-tray (`window::Mode::Hidden`), and non-intrusive background refresh that never steals focus during gameplay.
 - **Minimalist 4-Tier UI**: Features a disciplined monochrome Dark & Light theme, instant **English / 中文** switching across UI and system tray, per-second dual-axis charts, kill-pacing scatter plots, half-split stability diagnostics, long-term MA/PB trend curves with `cm/360` change attribution, and an 18-week activity heatmap.
 
 ---

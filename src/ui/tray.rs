@@ -11,6 +11,45 @@ pub enum TrayAction {
     Quit,
 }
 
+/// Hashable key holding menu IDs for the background event-driven tray subscription.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TraySubKey {
+    pub show_id: MenuId,
+    pub sync_id: MenuId,
+    pub quit_id: MenuId,
+}
+
+/// Non-blocking check of the global `tray-icon` channels from a background task.
+pub fn poll_tray_event(key: &TraySubKey) -> Option<TrayAction> {
+    if let Ok(event) = MenuEvent::receiver().try_recv() {
+        if key.show_id == event.id {
+            return Some(TrayAction::ShowWindow);
+        }
+        if key.sync_id == event.id {
+            return Some(TrayAction::SyncNow);
+        }
+        if key.quit_id == event.id {
+            return Some(TrayAction::Quit);
+        }
+    }
+
+    if let Ok(event) = TrayIconEvent::receiver().try_recv() {
+        if matches!(
+            event,
+            TrayIconEvent::DoubleClick { .. }
+                | TrayIconEvent::Click {
+                    button: tray_icon::MouseButton::Left,
+                    button_state: tray_icon::MouseButtonState::Up,
+                    ..
+                }
+        ) {
+            return Some(TrayAction::ShowWindow);
+        }
+    }
+
+    None
+}
+
 /// Lightweight Windows system tray wrapper for single-monitor UX.
 /// Never steals foreground focus when updating tooltip or run summaries.
 pub struct TrayController {
@@ -76,6 +115,18 @@ impl TrayController {
         self._tray.is_some()
     }
 
+    pub fn sub_key(&self) -> Option<TraySubKey> {
+        if self._tray.is_some() {
+            Some(TraySubKey {
+                show_id: self.show_id.clone(),
+                sync_id: self.sync_id.clone(),
+                quit_id: self.quit_id.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
     /// Updates tray menu labels and default tooltip when the user switches UI language.
     pub fn set_language(&self, lang: Language) {
         let (show_lbl, sync_lbl, quit_lbl, tooltip) = tray_labels(lang);
@@ -90,37 +141,6 @@ impl TrayController {
         if let Some(tray) = &self._tray {
             let _ = tray.set_tooltip(Some(text));
         }
-    }
-
-    /// Non-blocking poll for tray menu or left-click events.
-    pub fn poll_action(&self) -> Option<TrayAction> {
-        if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if self.show_id == event.id {
-                return Some(TrayAction::ShowWindow);
-            }
-            if self.sync_id == event.id {
-                return Some(TrayAction::SyncNow);
-            }
-            if self.quit_id == event.id {
-                return Some(TrayAction::Quit);
-            }
-        }
-
-        if let Ok(event) = TrayIconEvent::receiver().try_recv() {
-            if matches!(
-                event,
-                TrayIconEvent::DoubleClick { .. }
-                    | TrayIconEvent::Click {
-                        button: tray_icon::MouseButton::Left,
-                        button_state: tray_icon::MouseButtonState::Up,
-                        ..
-                    }
-            ) {
-                return Some(TrayAction::ShowWindow);
-            }
-        }
-
-        None
     }
 }
 

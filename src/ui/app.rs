@@ -24,7 +24,7 @@ use crate::ui::i18n::{
 };
 use crate::ui::sidebar::{ScenarioSort, view_scenario_picker};
 use crate::ui::theme::{self, UiPalette};
-use crate::ui::tray::{TrayAction, TrayController};
+use crate::ui::tray::{TrayAction, TrayController, TraySubKey, poll_tray_event};
 use crate::watcher::{WatcherConfig, spawn_watcher};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -84,7 +84,7 @@ pub enum Message {
 
     // Background Watcher & Tray
     Watcher(WatcherEvent),
-    TrayTick,
+    TrayAction(TrayAction),
     WindowCloseRequested(window::Id),
 }
 
@@ -235,10 +235,8 @@ impl App {
             subs.push(Subscription::run_with(key, watcher_stream));
         }
 
-        if self.tray.is_active() {
-            subs.push(
-                iced::time::every(Duration::from_millis(250)).map(|_| Message::TrayTick),
-            );
+        if let Some(tray_key) = self.tray.sub_key() {
+            subs.push(Subscription::run_with(tray_key, tray_event_stream));
         }
 
         subs.push(window::close_requests().map(Message::WindowCloseRequested));
@@ -254,11 +252,25 @@ impl App {
             Message::SelectTab(tab) => {
                 self.active_tab = tab;
                 self.scenario_picker_open = false;
-                if tab == ActiveTab::Overview {
-                    self.reload_overview();
-                } else if tab == ActiveTab::LongTermTrend {
-                    self.reload_trend_data();
+                match tab {
+                    ActiveTab::SingleRun => {
+                        self.trend_cache.clear();
+                        self.heatmap_cache.clear();
+                    }
+                    ActiveTab::LongTermTrend => {
+                        self.per_second_cache.clear();
+                        self.kill_interval_cache.clear();
+                        self.heatmap_cache.clear();
+                        self.reload_trend_data();
+                    }
+                    ActiveTab::Overview => {
+                        self.per_second_cache.clear();
+                        self.kill_interval_cache.clear();
+                        self.trend_cache.clear();
+                        self.reload_overview();
+                    }
                 }
+                trim_working_set();
                 Task::none()
             }
             Message::ToggleScenarioPicker => {
@@ -386,6 +398,7 @@ impl App {
                         self.banner = Some((format!("{}: {}", t(lang, "同步失败", "Sync failed"), e), p.semantic_red));
                     }
                 }
+                trim_working_set();
                 Task::none()
             }
             Message::ToggleSettings => {
@@ -461,6 +474,8 @@ impl App {
                 Task::none()
             }
             Message::HideToTray => {
+                self.clear_chart_caches();
+                trim_working_set();
                 if self.tray.is_active() {
                     window::oldest().and_then(|id| window::set_mode(id, window::Mode::Hidden))
                 } else {
@@ -519,30 +534,21 @@ impl App {
                     Task::none()
                 }
             },
-            Message::TrayTick => {
-                if let Some(action) = self.tray.poll_action() {
-                    match action {
-                        TrayAction::ShowWindow => {
-                            return window::oldest().and_then(|id| {
-                                Task::batch([
-                                    window::set_mode(id, window::Mode::Windowed),
-                                    window::minimize(id, false),
-                                    window::gain_focus(id),
-                                ])
-                            });
-                        }
-                        TrayAction::SyncNow => {
-                            return self.spawn_sync_task();
-                        }
-                        TrayAction::Quit => {
-                            return iced::exit();
-                        }
-                    }
-                }
-                Task::none()
-            }
+            Message::TrayAction(action) => match action {
+                TrayAction::ShowWindow => window::oldest().and_then(|id| {
+                    Task::batch([
+                        window::set_mode(id, window::Mode::Windowed),
+                        window::minimize(id, false),
+                        window::gain_focus(id),
+                    ])
+                }),
+                TrayAction::SyncNow => self.spawn_sync_task(),
+                TrayAction::Quit => iced::exit(),
+            },
             Message::WindowCloseRequested(id) => {
                 if self.config.minimize_to_tray && self.tray.is_active() {
+                    self.clear_chart_caches();
+                    trim_working_set();
                     // Real hide-to-tray (disappears from taskbar until restored via tray icon)
                     window::set_mode(id, window::Mode::Hidden)
                 } else {
@@ -1930,6 +1936,40 @@ fn short_timestamp(ts: &str) -> String {
     } else {
         ts.to_string()
     }
+}
+
+/// Trims unused memory-mapped font & allocator pages from the Windows process working set.
+#[cfg(windows)]
+pub fn trim_working_set() {
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> *mut core::ffi::c_void;
+        fn SetProcessWorkingSetSize(
+            hProcess: *mut core::ffi::c_void,
+            dwMinimumWorkingSetSize: usize,
+            dwMaximumWorkingSetSize: usize,
+        ) -> i32;
+    }
+    unsafe {
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn trim_working_set() {}
+
+fn tray_event_stream(key: &TraySubKey) -> impl iced::futures::Stream<Item = Message> + use<> {
+    let key = key.clone();
+    iced::stream::channel(16, async move |mut output| {
+        let mut interval = tokio::time::interval(Duration::from_millis(200));
+        loop {
+            interval.tick().await;
+            if let Some(action) = poll_tray_event(&key) {
+                if output.send(Message::TrayAction(action)).await.is_err() {
+                    break;
+                }
+            }
+        }
+    })
 }
 
 fn watcher_stream(key: &WatcherKey) -> impl iced::futures::Stream<Item = Message> + use<> {

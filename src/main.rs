@@ -9,6 +9,10 @@ use ui::app::App;
 use ui::theme;
 
 fn main() -> iced::Result {
+    unsafe {
+        std::env::set_var("TOKIO_WORKER_THREADS", "2");
+    }
+
     iced::application(App::new, App::update, App::view)
         .title(App::title)
         .subscription(App::subscription)
