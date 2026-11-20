@@ -107,6 +107,18 @@ fn test_sqlite_deduplication_and_pb_tracking() {
     assert_eq!(detail.ticks.len(), 24);
     assert!(detail.half_split.is_some());
 
+    // Deep telemetry insights verification on real Micro Flick fixture
+    let di = &detail.deep_insights;
+    assert_eq!(di.multi_shot_count, 11); // 81 total kills - 70 one-shot kills = 11 multi-shot kills
+    assert_eq!(di.max_one_shot_streak, 26); // kills 32..=57 are 26 consecutive 1-shot kills
+    assert!(di.miss_recovery_time_lost_s > 2.5);
+    assert!(di.estimated_lost_kills > 8.0);
+    assert!(di.potential_ceiling_score > detail.run.score + 500.0);
+    assert!(di.p10_interval_ms > 0.0 && di.p10_interval_ms <= di.p50_interval_ms);
+    assert!(di.p50_interval_ms <= di.p90_interval_ms);
+    assert!(di.rhythm_cv_pct > 0.0);
+    assert!(di.early_kps > 0.0 && di.mid_kps > 0.0 && di.late_kps > 0.0);
+
     drop(db);
     let _ = fs::remove_file(&db_path);
 }

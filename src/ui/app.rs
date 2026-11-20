@@ -19,7 +19,8 @@ use crate::ui::charts::kill_interval_chart::KillIntervalChart;
 use crate::ui::charts::per_second_chart::{PerSecondBarMode, PerSecondChart};
 use crate::ui::charts::trend_chart::TrendChart;
 use crate::ui::i18n::{
-    bar_mode_label, half_split_diagnosis, metric_short, t, tab_label, time_range_short,
+    bar_mode_label, half_split_diagnosis, metric_short, pacing_profile_label, t, tab_label,
+    time_range_short,
 };
 use crate::ui::sidebar::{ScenarioSort, view_scenario_picker};
 use crate::ui::theme::{self, UiPalette};
@@ -1196,9 +1197,12 @@ impl App {
         .padding([4, 2])
         .width(Length::Fill);
 
+        let deep_insights_card = self.view_deep_insights_card(p, lang, detail);
+
         column![
             hero_card,
             secondary_strip,
+            deep_insights_card,
             chart1_card,
             half_split_card,
             chart2_card,
@@ -1207,6 +1211,141 @@ impl App {
         ]
         .spacing(10)
         .width(Length::Fill)
+        .into()
+    }
+
+    fn view_deep_insights_card<'a>(
+        &self,
+        p: UiPalette,
+        lang: Language,
+        detail: &'a RunDetail,
+    ) -> Element<'a, Message> {
+        let di = &detail.deep_insights;
+        let run = &detail.run;
+        let ceiling_diff = (di.potential_ceiling_score - run.score).max(0.0);
+
+        let ceiling_sub = match lang {
+            Language::Zh => format!(
+                "+{:.0} · 补枪耗 {:.2}s / +{:.1}杀",
+                ceiling_diff, di.miss_recovery_time_lost_s, di.estimated_lost_kills
+            ),
+            Language::En => format!(
+                "+{:.0} · {:.2}s lost / +{:.1}k",
+                ceiling_diff, di.miss_recovery_time_lost_s, di.estimated_lost_kills
+            ),
+        };
+
+        let streak_val = match lang {
+            Language::Zh => format!("{} 连杀", di.max_one_shot_streak),
+            Language::En => format!("{} streak", di.max_one_shot_streak),
+        };
+        let streak_sub = match lang {
+            Language::Zh => format!("连空传染 {}/{}", di.clustered_miss_count, di.multi_shot_count),
+            Language::En => format!("Tilt cascade {}/{}", di.clustered_miss_count, di.multi_shot_count),
+        };
+
+        let row1 = row![
+            secondary_metric_cell(
+                p,
+                t(lang, "零失误理论上限", "Zero-Miss Ceiling"),
+                format!("~{:.0}", di.potential_ceiling_score),
+                ceiling_sub,
+            ),
+            secondary_metric_cell(
+                p,
+                t(lang, "最长一枪连杀", "Max 1-Shot Streak"),
+                streak_val,
+                streak_sub,
+            ),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+
+        let p10_sub = match lang {
+            Language::Zh => format!("中位 P50 {:.0}ms", di.p50_interval_ms),
+            Language::En => format!("Median P50 {:.0}ms", di.p50_interval_ms),
+        };
+        let p90_sub = match lang {
+            Language::Zh => format!("节拍波动 CV {:.1}%", di.rhythm_cv_pct),
+            Language::En => format!("Rhythm CV {:.1}%", di.rhythm_cv_pct),
+        };
+
+        let row2 = row![
+            secondary_metric_cell(
+                p,
+                t(lang, "极限爆发 P10", "Peak P10"),
+                format!("{:.0} ms", di.p10_interval_ms),
+                p10_sub,
+            ),
+            secondary_metric_cell(
+                p,
+                t(lang, "卡壳分位 P90", "Bottleneck P90"),
+                format!("{:.0} ms", di.p90_interval_ms),
+                p90_sub,
+            ),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+
+        let phase_box = container(
+            row![
+                column![
+                    text(t(lang, "前 1/3", "Early 1/3")).size(9.5).color(p.text_muted),
+                    text(format!("{:.2}/s ({:.0}%)", di.early_kps, di.early_acc))
+                        .size(11)
+                        .font(theme::FONT_BOLD)
+                        .color(p.text_primary),
+                ]
+                .spacing(1)
+                .width(Length::FillPortion(1)),
+                column![
+                    text(t(lang, "中 1/3", "Mid 1/3")).size(9.5).color(p.text_muted),
+                    text(format!("{:.2}/s ({:.0}%)", di.mid_kps, di.mid_acc))
+                        .size(11)
+                        .font(theme::FONT_BOLD)
+                        .color(p.text_primary),
+                ]
+                .spacing(1)
+                .width(Length::FillPortion(1)),
+                column![
+                    text(t(lang, "后 1/3", "Late 1/3")).size(9.5).color(p.text_muted),
+                    text(format!("{:.2}/s ({:.0}%)", di.late_kps, di.late_acc))
+                        .size(11)
+                        .font(theme::FONT_BOLD)
+                        .color(p.text_primary),
+                ]
+                .spacing(1)
+                .width(Length::FillPortion(1)),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding([6, 8])
+        .width(Length::Fill)
+        .style(theme::subtle_row_container(p));
+
+        container(
+            column![
+                row![
+                    text(t(lang, "深度洞察", "Deep Telemetry"))
+                        .size(12)
+                        .font(theme::FONT_BOLD)
+                        .color(p.text_primary),
+                    Space::new().width(Length::Fill),
+                    text(pacing_profile_label(di.pacing_profile, lang))
+                        .size(10.5)
+                        .color(p.text_secondary),
+                ]
+                .align_y(Alignment::Center),
+                row1,
+                row2,
+                phase_box,
+            ]
+            .spacing(8),
+        )
+        .padding(11)
+        .width(Length::Fill)
+        .style(theme::card_container(p))
         .into()
     }
 
@@ -1401,6 +1540,21 @@ impl App {
                     ]
                     .spacing(2)
                     .width(Length::FillPortion(1)),
+                ]
+                .spacing(8),
+                row![
+                    secondary_metric_cell(
+                        p,
+                        t(lang, "保底线 P25", "Floor P25"),
+                        format!("{:.1}{}", a.p25_floor, unit),
+                        t(lang, "低谷稳定下限", "25th percentile").to_string(),
+                    ),
+                    secondary_metric_cell(
+                        p,
+                        t(lang, "常态上限 P90", "Ceiling P90"),
+                        format!("{:.1}{}", a.p90_ceiling, unit),
+                        t(lang, "前10%高水准", "90th percentile").to_string(),
+                    ),
                 ]
                 .spacing(8),
             ]

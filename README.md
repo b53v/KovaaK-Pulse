@@ -37,6 +37,11 @@ KovaaK Pulse 编译为单个原生 `.exe`（~12.5 MB，无 Python 运行时、�
 严格按照「核心结论 → 关键效率 → 过程诊断 → 环境元数据」四层信息权重排布：
 - **Tier 1 · 核心指标卡（Hero）**：超大号总分（`Score`）+ `NEW PB` / 近 10 局均分差值 `Δ`，右侧配对显示命中率（`Accuracy %`）与 `命中/总开火`。
 - **Tier 2 · 次级效率条（3-Column Strip）**：`KPS`（含峰值 KPS）、`平均 TTK`（含击杀间隔）、`一枪率 1-Shot %`（含补枪平均耗时）。
+- **深度洞察 · Deep Telemetry（KovaaK's 游戏内不可见的隐藏指标）**：
+  - **零失误理论上限（Zero-Miss Ceiling）**：量化多枪补射耗费的总秒数与折算损失击杀数，推算当局零失误理论最高分。
+  - **最长一枪连杀 & 连空传染（Streak & Tilt Cascade）**：统计最长连续一枪秒杀（`Max 1-Shot Streak`）及连续失误传染次数（`Clustered Misses`）。
+  - **反应分位数 & 节拍器波动（P10 / P50 / P90 & Rhythm CV%）**：剥离极端值干扰，展示极限爆发 `P10`、真实中位节奏 `P50`、卡壳瓶颈 `P90` 与一枪节拍变异系数 `CV%`。
+  - **三段式节奏画像（3-Phase Pacing Profile）**：拆解 `前 1/3 → 中 1/3 → 后 1/3` 的 KPS 与准度变化，自动判定节奏类型（`节拍器稳定` / `开局慢热` / `中段走神` / `尾盘手紧` / `后程爆发`）。
 - **Tier 3 · 自绘 `Canvas` 交互图表与稳定性诊断**：
   - **逐秒双轴图**：柱状图（支持切换 `KPS` / `得分` / `伤害效率`，负分自动标红）+ 银白色每秒命中率折线 + 悬停十字准星明细。
   - **前后半程对比卡**：自动对比 `0–50%` 与 `50–100%` 准度、KPS 与得分变化，输出稳定性诊断。
@@ -45,7 +50,7 @@ KovaaK Pulse 编译为单个原生 `.exe`（~12.5 MB，无 Python 运行时、�
 
 ### 2. 长期趋势（Long-Term Trends）
 - 支持按时间范围（今日 / 7 天 / 30 天 / 全部）、指标（`Score` / `Accuracy` / `KPS` / `Avg TTK` / `1-Shot %`）与均线窗口（`MA5` / `MA10` / `MA20`）筛选。
-- 自绘趋势图同时叠加**单局散点 + MA 移动均线 + 历史 PB 阶梯包络线 + `cm/360` 灵敏度变更竖直标记线**。
+- 自绘趋势图同时叠加**单局散点 + MA 移动均线 + 历史 PB 阶梯包络线 + `cm/360` 灵敏度变更竖直标记线**，并统计**保底线 `P25`（Skill Floor）**与**常态上限 `P90`（Skill Ceiling）**。
 - 下方提供按灵敏度/FOV 分组的**配置对比卡片**（局数、均值、PB、标准差 CV%），量化换灵敏度后的真实收益。
 
 ### 3. 训练总览（Training Overview）
@@ -101,7 +106,7 @@ flowchart LR
 | :--- | :--- |
 | **`Stats.csv`** | Per-kill events (`Kill #`, `Timestamp`, `Bot`, `Weapon`, `TTK`, `Shots`, `Hits`, `Damage Done/Possible`, `OverShots`), weapon summary, run totals (`Score`, `Kills`, `Deaths`, `Avg TTK`, `Reloads`, `MBS Points`, `Distance Traveled`), and hardware/sensitivity settings (`Sens Scale`, `Horiz/Vert Sens`, `DPI`, `FOV`, `Resolution`, `Avg FPS`). |
 | **`Performance.perf`** | Zero-dependency **Proto3 wire-format** decoder reading `Header` (`scenario_name`, `scenario_hash`, `challenge_start_utc`, `ScenarioConfig`) and 1 Hz `Events` stream (`shots_fired`, `shots_hit`, `shots_missed`, `damage_done`, `score`, `kills`, `overshots`, `target_size`, `target_speed`, `random_sens_scale`), cross-validated against CSV totals. |
-| **Derived Metrics** | Automatic **`cm/360`** conversion across 25+ games, **`1-Shot %`**, **multi-shot follow-up recovery TTK**, **worst score-drop & peak KPS seconds**, **first-half vs. second-half stability diagnosis**, **MA5/MA10/MA20**, **PB step envelope**, **stability CV%**, and **`cm/360` change attribution**. |
+| **Derived Metrics** | Automatic **`cm/360`** conversion across 25+ games, **`1-Shot %`**, **Zero-Miss Theoretical Ceiling Score**, **Max 1-Shot Streak & Tilt Cascade count**, **P10 / P50 / P90 kill interval percentiles & Rhythm CV%**, **3-Phase Pacing Profile (`Early / Mid / Late`)**, **worst score-drop & peak KPS seconds**, **first-half vs. second-half stability diagnosis**, **MA5/MA10/MA20**, **PB step envelope**, **Skill Floor `P25` / Ceiling `P90`**, and **`cm/360` change attribution**. |
 
 ---
 

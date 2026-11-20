@@ -7,8 +7,8 @@ use chrono::{Duration, Local};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use crate::analytics::{
-    compute_config_groups, compute_half_split, compute_trend_analysis, find_best_kps_tick,
-    find_worst_score_tick,
+    compute_config_groups, compute_deep_insights, compute_half_split, compute_trend_analysis,
+    find_best_kps_tick, find_worst_score_tick,
 };
 use crate::config::default_db_path;
 use crate::model::{
@@ -568,6 +568,7 @@ impl Database {
         };
 
         let half_split = compute_half_split(&ticks);
+        let deep_insights = compute_deep_insights(&run, &kills, &ticks);
         let worst_score_tick = find_worst_score_tick(&ticks);
         let best_kps_tick = find_best_kps_tick(&ticks);
 
@@ -576,6 +577,7 @@ impl Database {
             kills,
             ticks,
             half_split,
+            deep_insights,
             last10_avg_score,
             delta_vs_last10,
             worst_score_tick,

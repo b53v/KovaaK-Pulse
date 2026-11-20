@@ -1,4 +1,4 @@
-use crate::model::{HalfSplitComparison, Language, TimeRange, TrendMetric};
+use crate::model::{HalfSplitComparison, Language, PacingProfile, TimeRange, TrendMetric};
 use crate::ui::app::ActiveTab;
 use crate::ui::charts::per_second_chart::PerSecondBarMode;
 use crate::ui::sidebar::ScenarioSort;
@@ -70,6 +70,21 @@ pub fn metric_short(metric: TrendMetric, lang: Language) -> &'static str {
         (TrendMetric::AvgTtkMs, Language::En) => "TTK",
         (TrendMetric::OneShotPct, Language::Zh) => "1-Shot",
         (TrendMetric::OneShotPct, Language::En) => "1-Shot",
+    }
+}
+
+pub fn pacing_profile_label(profile: PacingProfile, lang: Language) -> &'static str {
+    match (profile, lang) {
+        (PacingProfile::SteadyMetronome, Language::Zh) => "节拍器稳定",
+        (PacingProfile::SteadyMetronome, Language::En) => "Metronome Steady",
+        (PacingProfile::SlowStarter, Language::Zh) => "开局慢热",
+        (PacingProfile::SlowStarter, Language::En) => "Slow Starter",
+        (PacingProfile::MidSlump, Language::Zh) => "中段走神",
+        (PacingProfile::MidSlump, Language::En) => "Mid-Run Dip",
+        (PacingProfile::EndgameChoke, Language::Zh) => "尾盘手紧",
+        (PacingProfile::EndgameChoke, Language::En) => "Endgame Choke",
+        (PacingProfile::StrongFinisher, Language::Zh) => "后程爆发",
+        (PacingProfile::StrongFinisher, Language::En) => "Strong Finisher",
     }
 }
 

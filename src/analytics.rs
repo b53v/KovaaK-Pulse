@@ -1,9 +1,224 @@
 use std::collections::BTreeMap;
 
 use crate::model::{
-    ConfigGroupStats, HalfSplitComparison, PerfTick, RunRecord, TrendAnalysis, TrendMetric,
-    TrendPoint,
+    ConfigGroupStats, DeepInsights, HalfSplitComparison, KillEvent, PacingProfile, PerfTick,
+    RunRecord, TrendAnalysis, TrendMetric, TrendPoint,
 };
+
+/// Computes linear-interpolated percentile `p` (`0.0..=1.0`) from an ascending-sorted slice.
+fn percentile_sorted(sorted: &[f64], p: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    if sorted.len() == 1 {
+        return sorted[0];
+    }
+    let clamped = p.clamp(0.0, 1.0);
+    let pos = clamped * (sorted.len() - 1) as f64;
+    let lower = pos.floor() as usize;
+    let upper = pos.ceil() as usize;
+    if lower == upper {
+        sorted[lower]
+    } else {
+        let weight = pos - lower as f64;
+        sorted[lower] * (1.0 - weight) + sorted[upper] * weight
+    }
+}
+
+/// Computes hidden deep-telemetry insights for a single run (zero-miss score ceiling,
+/// 1-shot streak, miss cascade, P10/P50/P90 reaction percentiles, metronome CV%, and 3-phase pacing).
+pub fn compute_deep_insights(
+    run: &RunRecord,
+    kills: &[KillEvent],
+    ticks: &[PerfTick],
+) -> DeepInsights {
+    let mut max_one_shot_streak = 0u32;
+    let mut cur_streak = 0u32;
+    let mut multi_shot_count = 0u32;
+    let mut clustered_miss_count = 0u32;
+    let mut prev_was_multi = false;
+    let mut miss_recovery_time_lost_s = 0.0f64;
+
+    let mut all_intervals: Vec<f64> = Vec::with_capacity(kills.len());
+    let mut one_shot_intervals: Vec<f64> = Vec::with_capacity(kills.len());
+
+    for k in kills {
+        if k.is_one_shot {
+            cur_streak += 1;
+            if cur_streak > max_one_shot_streak {
+                max_one_shot_streak = cur_streak;
+            }
+            prev_was_multi = false;
+            if let Some(iv) = k.interval_ms {
+                if iv > 0.0 {
+                    one_shot_intervals.push(iv);
+                }
+            }
+        } else {
+            cur_streak = 0;
+            if k.shots > 1 {
+                multi_shot_count += 1;
+                miss_recovery_time_lost_s += k.ttk_s.max(0.0);
+                if prev_was_multi {
+                    clustered_miss_count += 1;
+                }
+                prev_was_multi = true;
+            } else {
+                prev_was_multi = false;
+            }
+        }
+
+        if let Some(iv) = k.interval_ms {
+            if iv > 0.0 {
+                all_intervals.push(iv);
+            }
+        }
+    }
+
+    all_intervals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    one_shot_intervals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let p10_interval_ms = percentile_sorted(&all_intervals, 0.10);
+    let p50_interval_ms = percentile_sorted(&all_intervals, 0.50);
+    let p90_interval_ms = percentile_sorted(&all_intervals, 0.90);
+
+    let rhythm_basis = if one_shot_intervals.len() >= 2 {
+        &one_shot_intervals
+    } else {
+        &all_intervals
+    };
+    let rhythm_cv_pct = if rhythm_basis.len() >= 2 {
+        let n = rhythm_basis.len() as f64;
+        let mean = rhythm_basis.iter().sum::<f64>() / n;
+        if mean > 1e-6 {
+            let var = rhythm_basis.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+            (var.sqrt() / mean) * 100.0
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    };
+
+    let p50_one_shot_ms = if !one_shot_intervals.is_empty() {
+        percentile_sorted(&one_shot_intervals, 0.50)
+    } else {
+        p50_interval_ms
+    };
+
+    let estimated_lost_kills = if p50_one_shot_ms > 1.0 && miss_recovery_time_lost_s > 0.0 {
+        (miss_recovery_time_lost_s * 1000.0) / p50_one_shot_ms
+    } else {
+        0.0
+    };
+
+    let score_per_kill = if run.kills > 0 && run.score > 0.0 {
+        run.score / run.kills as f64
+    } else {
+        0.0
+    };
+    let potential_ceiling_score = if run.score > 0.0 {
+        run.score + estimated_lost_kills * score_per_kill
+    } else {
+        0.0
+    };
+
+    // 3-phase split (Early 0-33%, Mid 33-66%, Late 66-100%)
+    let (early_kps, mid_kps, late_kps, early_acc, mid_acc, late_acc) = if ticks.len() >= 3 {
+        let len = ticks.len();
+        let n1 = (len / 3).max(1);
+        let n2 = ((2 * len) / 3).max(n1 + 1).min(len - 1);
+        let phase_stats = |slice: &[PerfTick]| -> (f64, f64) {
+            let count = slice.len() as f64;
+            let k: u32 = slice.iter().map(|t| t.kills).sum();
+            let fired: u32 = slice.iter().map(|t| t.shots_fired).sum();
+            let hit: u32 = slice.iter().map(|t| t.shots_hit).sum();
+            let kps = if count > 0.0 { k as f64 / count } else { 0.0 };
+            let acc = if fired > 0 {
+                (hit as f64 / fired as f64) * 100.0
+            } else {
+                run.accuracy
+            };
+            (kps, acc)
+        };
+        let (ek, ea) = phase_stats(&ticks[..n1]);
+        let (mk, ma) = phase_stats(&ticks[n1..n2]);
+        let (lk, la) = phase_stats(&ticks[n2..]);
+        (ek, mk, lk, ea, ma, la)
+    } else if kills.len() >= 3 && run.duration_s > 0.0 {
+        let len = kills.len();
+        let n1 = (len / 3).max(1);
+        let n2 = ((2 * len) / 3).max(n1 + 1).min(len - 1);
+        let phase_dur = (run.duration_s / 3.0).max(0.5);
+        let kill_phase = |slice: &[KillEvent]| -> (f64, f64) {
+            let kps = slice.len() as f64 / phase_dur;
+            let shots: u32 = slice.iter().map(|k| k.shots).sum();
+            let hits: u32 = slice.iter().map(|k| k.hits).sum();
+            let acc = if shots > 0 {
+                (hits as f64 / shots as f64) * 100.0
+            } else {
+                run.accuracy
+            };
+            (kps, acc)
+        };
+        let (ek, ea) = kill_phase(&kills[..n1]);
+        let (mk, ma) = kill_phase(&kills[n1..n2]);
+        let (lk, la) = kill_phase(&kills[n2..]);
+        (ek, mk, lk, ea, ma, la)
+    } else {
+        (
+            run.avg_kps,
+            run.avg_kps,
+            run.avg_kps,
+            run.accuracy,
+            run.accuracy,
+            run.accuracy,
+        )
+    };
+
+    let eff_e = early_kps * (early_acc / 100.0).max(0.25);
+    let eff_m = mid_kps * (mid_acc / 100.0).max(0.25);
+    let eff_l = late_kps * (late_acc / 100.0).max(0.25);
+    let avg_eff = (eff_e + eff_m + eff_l) / 3.0;
+
+    let pacing_profile = if avg_eff > 1e-6 {
+        if (eff_l < eff_e * 0.88 && eff_l < eff_m * 0.90)
+            || (late_acc + 5.0 < early_acc && late_kps <= early_kps)
+        {
+            PacingProfile::EndgameChoke
+        } else if eff_m < eff_e * 0.88 && eff_m < eff_l * 0.88 {
+            PacingProfile::MidSlump
+        } else if eff_e < eff_m * 0.88 && eff_e < eff_l * 0.88 {
+            PacingProfile::SlowStarter
+        } else if eff_l > eff_e * 1.10 && eff_l >= eff_m * 1.04 {
+            PacingProfile::StrongFinisher
+        } else {
+            PacingProfile::SteadyMetronome
+        }
+    } else {
+        PacingProfile::SteadyMetronome
+    };
+
+    DeepInsights {
+        max_one_shot_streak,
+        miss_recovery_time_lost_s,
+        estimated_lost_kills,
+        potential_ceiling_score,
+        p10_interval_ms,
+        p50_interval_ms,
+        p90_interval_ms,
+        rhythm_cv_pct,
+        multi_shot_count,
+        clustered_miss_count,
+        early_kps,
+        mid_kps,
+        late_kps,
+        early_acc,
+        mid_acc,
+        late_acc,
+        pacing_profile,
+    }
+}
 
 /// Computes first-half (0-50%) vs second-half (50-100%) stability diagnosis from per-second ticks.
 pub fn compute_half_split(ticks: &[PerfTick]) -> Option<HalfSplitComparison> {
@@ -206,6 +421,11 @@ pub fn compute_trend_analysis(
     let max_val = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let pb_value = running_pb.unwrap_or(0.0);
 
+    let mut sorted_vals = values.clone();
+    sorted_vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let p25_floor = percentile_sorted(&sorted_vals, 0.25);
+    let p90_ceiling = percentile_sorted(&sorted_vals, 0.90);
+
     let recent_delta_pct = if values.len() >= 4 {
         let half = (values.len() / 2).min(5);
         let recent_slice = &values[values.len() - half..];
@@ -229,6 +449,8 @@ pub fn compute_trend_analysis(
         min_val,
         max_val,
         pb_value,
+        p25_floor,
+        p90_ceiling,
         recent_delta_pct,
     }
 }

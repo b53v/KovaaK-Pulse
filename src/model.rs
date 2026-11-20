@@ -195,6 +195,52 @@ pub struct HalfSplitComparison {
     pub diagnosis: String,
 }
 
+/// 3-phase run pacing classification (Early / Mid / Late).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum PacingProfile {
+    #[default]
+    SteadyMetronome,
+    SlowStarter,
+    MidSlump,
+    EndgameChoke,
+    StrongFinisher,
+}
+
+/// Hidden telemetry insights not exposed by KovaaK's in-game post-run screen.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DeepInsights {
+    /// Longest consecutive 1-shot kill streak in the run
+    pub max_one_shot_streak: u32,
+    /// Total seconds lost on multi-shot kills (`shots > 1`)
+    pub miss_recovery_time_lost_s: f64,
+    /// Estimated additional kills achievable at median 1-shot pace without misses
+    pub estimated_lost_kills: f64,
+    /// Theoretical zero-miss score ceiling (`score + estimated_lost_kills * score_per_kill`)
+    pub potential_ceiling_score: f64,
+    /// Fastest 10% kill interval (ms) — peak flick/reaction speed
+    pub p10_interval_ms: f64,
+    /// Median (50%) kill interval (ms) — outlier-resistant true cadence
+    pub p50_interval_ms: f64,
+    /// Slowest 10% (90th percentile) kill interval (ms) — hesitation/correction bottleneck
+    pub p90_interval_ms: f64,
+    /// Coefficient of variation (`std_dev / mean * 100`) of 1-shot kill intervals
+    pub rhythm_cv_pct: f64,
+    /// Number of kills requiring > 1 shot
+    pub multi_shot_count: u32,
+    /// Number of multi-shot kills immediately following another multi-shot kill (tilt cascade)
+    pub clustered_miss_count: u32,
+    /// 3-phase KPS (0-33%, 33-66%, 66-100%)
+    pub early_kps: f64,
+    pub mid_kps: f64,
+    pub late_kps: f64,
+    /// 3-phase accuracy % (0-33%, 33-66%, 66-100%)
+    pub early_acc: f64,
+    pub mid_acc: f64,
+    pub late_acc: f64,
+    /// Classified 3-phase pacing archetype
+    pub pacing_profile: PacingProfile,
+}
+
 /// Full detail bundle for the Single-Run Review tab.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RunDetail {
@@ -202,6 +248,7 @@ pub struct RunDetail {
     pub kills: Vec<KillEvent>,
     pub ticks: Vec<PerfTick>,
     pub half_split: Option<HalfSplitComparison>,
+    pub deep_insights: DeepInsights,
     pub last10_avg_score: Option<f64>,
     pub delta_vs_last10: Option<f64>,
     pub worst_score_tick: Option<PerfTick>,
@@ -382,6 +429,10 @@ pub struct TrendAnalysis {
     pub min_val: f64,
     pub max_val: f64,
     pub pb_value: f64,
+    /// 25th percentile — bad-day consistency floor
+    pub p25_floor: f64,
+    /// 90th percentile — peak-form regular ceiling
+    pub p90_ceiling: f64,
     pub recent_delta_pct: Option<f64>,
 }
 
