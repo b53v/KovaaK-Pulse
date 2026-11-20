@@ -345,15 +345,15 @@ impl App {
                         Ok(count) => {
                             self.banner = Some((
                                 format!("已导出 {} 条至 {}", count, out_path.display()),
-                                theme::ACCENT_GREEN,
+                                theme::SEMANTIC_GREEN,
                             ));
                         }
                         Err(e) => {
-                            self.banner = Some((format!("导出失败: {}", e), theme::ACCENT_RED));
+                            self.banner = Some((format!("导出失败: {}", e), theme::SEMANTIC_RED));
                         }
                     }
                 } else {
-                    self.banner = Some(("请先选择一个训练项目".to_string(), theme::ACCENT_AMBER));
+                    self.banner = Some(("请先选择一个训练项目".to_string(), theme::BORDER_ACTIVE));
                 }
                 Task::none()
             }
@@ -373,14 +373,14 @@ impl App {
                             self.reload_all_data(None);
                             self.banner = Some((
                                 format!("同步完成：新增 {} 局，跳过 {} 局（{}ms）", imported, skipped, elapsed_ms),
-                                theme::ACCENT_CYAN,
+                                theme::BORDER_ACTIVE,
                             ));
                         } else if self.scenarios.is_empty() {
                             self.reload_all_data(None);
                         }
                     }
                     Err(e) => {
-                        self.banner = Some((format!("同步失败: {}", e), theme::ACCENT_RED));
+                        self.banner = Some((format!("同步失败: {}", e), theme::SEMANTIC_RED));
                     }
                 }
                 Task::none()
@@ -429,7 +429,7 @@ impl App {
                 self.watched_dirs = resolve_kovaak_dirs(&self.config);
                 self.watcher_generation = self.watcher_generation.wrapping_add(1);
                 self.show_settings = false;
-                self.banner = Some(("设置已保存，正在重新监听".to_string(), theme::ACCENT_CYAN));
+                self.banner = Some(("设置已保存，正在重新监听".to_string(), theme::BORDER_ACTIVE));
                 self.spawn_sync_task()
             }
             Message::DismissBanner => {
@@ -467,7 +467,7 @@ impl App {
                     self.selected_scenario = Some(scenario.clone());
                     self.reload_all_data(Some(run_id));
 
-                    let pb_tag = if is_new_pb { " ★PB!" } else { "" };
+                    let pb_tag = if is_new_pb { " · NEW PB" } else { "" };
                     let summary = format!(
                         "{} · {:.1}分 · {:.1}% · {:.2}/s{} ({:.2}s)",
                         scenario,
@@ -481,9 +481,9 @@ impl App {
                         self.banner = Some((
                             summary.clone(),
                             if is_new_pb {
-                                theme::ACCENT_GREEN
+                                theme::SEMANTIC_GREEN
                             } else {
-                                theme::ACCENT_CYAN
+                                theme::BORDER_ACTIVE
                             },
                         ));
                     }
@@ -493,7 +493,7 @@ impl App {
                 WatcherEvent::Error(err) => {
                     self.watcher_online = false;
                     self.watcher_status = "异常".to_string();
-                    self.banner = Some((format!("监听异常: {}", err), theme::ACCENT_RED));
+                    self.banner = Some((format!("监听异常: {}", err), theme::SEMANTIC_RED));
                     Task::none()
                 }
             },
@@ -646,7 +646,7 @@ impl App {
             Message::ToggleScenarioStar,
         );
 
-        let mut body_col = Column::new().spacing(9).width(Length::Fill);
+        let mut body_col = Column::new().spacing(10).width(Length::Fill);
 
         if self.show_settings {
             body_col = body_col.push(self.view_settings_panel());
@@ -697,46 +697,35 @@ impl App {
 
     fn view_compact_header(&self) -> Element<'_, Message> {
         let dot_color = if self.watcher_online {
-            theme::ACCENT_GREEN
+            theme::SEMANTIC_GREEN
         } else {
-            theme::ACCENT_AMBER
+            theme::TEXT_MUTED
         };
 
         let sync_label = if self.is_syncing { "…" } else { "↻" };
 
         let status_row = row![
-            text("◎")
-                .size(15)
-                .font(theme::FONT_BOLD)
-                .color(theme::ACCENT_CYAN),
             text("KovaaK Pulse")
                 .size(13.5)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_PRIMARY),
-            container(
-                row![
-                    text("●").size(8.5).color(dot_color),
-                    text(&self.watcher_status).size(10.5).color(theme::TEXT_SECONDARY),
-                ]
-                .spacing(4)
-                .align_y(Alignment::Center),
-            )
-            .padding([2, 7])
-            .style(theme::badge_container(theme::BG_CARD, theme::BORDER_SUBTLE)),
+            Space::new().width(4),
+            text("●").size(8).color(dot_color),
+            text(&self.watcher_status).size(10.5).color(theme::TEXT_MUTED),
             Space::new().width(Length::Fill),
             button(text(sync_label).size(12.5))
-                .padding([3, 8])
-                .style(theme::pill_button(false))
+                .padding([3, 7])
+                .style(theme::ghost_button)
                 .on_press(Message::TriggerManualSync),
             button(text("⚙").size(12.5))
-                .padding([3, 8])
-                .style(theme::pill_button(self.show_settings))
+                .padding([3, 7])
+                .style(theme::ghost_button)
                 .on_press(Message::ToggleSettings),
         ]
-        .spacing(6)
+        .spacing(4)
         .align_y(Alignment::Center);
 
-        let mut tabs_row = Row::new().spacing(5).width(Length::Fill);
+        let mut tabs_row = Row::new().spacing(3).width(Length::Fill);
         for tab in ActiveTab::ALL {
             let active = *tab == self.active_tab;
             tabs_row = tabs_row.push(
@@ -756,7 +745,12 @@ impl App {
             );
         }
 
-        container(column![status_row, tabs_row].spacing(7).width(Length::Fill))
+        let segmented_bar = container(tabs_row)
+            .padding(3)
+            .width(Length::Fill)
+            .style(theme::segmented_track_container);
+
+        container(column![status_row, segmented_bar].spacing(8).width(Length::Fill))
             .padding([8, 10])
             .width(Length::Fill)
             .style(theme::topbar_container)
@@ -779,9 +773,9 @@ impl App {
         let toggle_row = row![
             button(
                 text(if self.config.single_monitor_mode {
-                    "✓ 单屏模式"
+                    "✓ 单屏"
                 } else {
-                    "○ 双屏模式"
+                    "○ 双屏"
                 })
                 .size(11),
             )
@@ -801,7 +795,7 @@ impl App {
             .on_press(Message::ToggleMinimizeToTray),
             button(
                 text(if self.config.notifications_enabled {
-                    "✓ 横幅"
+                    "✓ 提示"
                 } else {
                     "○ 静默"
                 })
@@ -816,13 +810,13 @@ impl App {
 
         container(
             column![
-                text("目录与单屏设置")
-                    .size(12.5)
+                text("目录与偏好设置")
+                    .size(12)
                     .font(theme::FONT_BOLD)
-                    .color(theme::ACCENT_CYAN),
-                text("Stats 目录:").size(10.5).color(theme::TEXT_MUTED),
+                    .color(theme::TEXT_PRIMARY),
+                text("Stats 目录").size(10.5).color(theme::TEXT_MUTED),
                 stats_input,
-                text("Performances 目录:").size(10.5).color(theme::TEXT_MUTED),
+                text("Performances 目录").size(10.5).color(theme::TEXT_MUTED),
                 perf_input,
                 toggle_row,
                 button(
@@ -839,7 +833,7 @@ impl App {
         )
         .padding(10)
         .width(Length::Fill)
-        .style(theme::card_accent_container(theme::ACCENT_CYAN))
+        .style(theme::card_container)
         .into()
     }
 
@@ -865,91 +859,79 @@ impl App {
 
         let run = &detail.run;
 
-        // 1. Compact 2-column x 3-row KPI Grid
-        let delta_text = match detail.delta_vs_last10 {
-            Some(d) => format!("{:+.1} vs 近10局", d),
-            None => short_timestamp(&run.played_at),
-        };
-        let delta_color = match detail.delta_vs_last10 {
-            Some(d) if d >= 0.0 => theme::ACCENT_GREEN,
-            Some(_) => theme::ACCENT_RED,
-            None => theme::TEXT_MUTED,
-        };
-        let pb_badge = if run.is_pb {
-            Some(("NEW PB", theme::ACCENT_GREEN))
+        // ── TIER 1: Hero Card (Score + Accuracy) ──────────────────────────
+        let (hero_sub_text, hero_sub_color) = if run.is_pb {
+            match detail.delta_vs_last10 {
+                Some(d) => (format!("NEW PB · {:+.1} vs 近10局", d), theme::SEMANTIC_GREEN),
+                None => ("NEW PB".to_string(), theme::SEMANTIC_GREEN),
+            }
+        } else if let Some(d) = detail.delta_vs_last10 {
+            let color = if d >= 0.0 {
+                theme::SEMANTIC_GREEN
+            } else {
+                theme::SEMANTIC_RED
+            };
+            (format!("{:+.1} vs 近10局均值", d), color)
         } else {
-            None
+            (short_timestamp(&run.played_at), theme::TEXT_MUTED)
         };
-        let cm_str = match run.cm_per_360 {
-            Some(cm) => format!("{:.1}cm · {:.0}fps", cm, run.avg_fps),
-            None => format!("{:.0} FPS", run.avg_fps),
-        };
-        let sens_sub = format!("{} {:.2} @ {}DPI", run.sens_scale, run.horiz_sens, run.dpi);
 
-        let kpi_row1 = row![
-            compact_kpi_card(
-                "得分 SCORE",
-                format!("{:.1}", run.score),
-                delta_text,
-                theme::ACCENT_CYAN,
-                delta_color,
-                pb_badge,
-            ),
-            compact_kpi_card(
-                "命中率 ACC",
-                format!("{:.2}%", run.accuracy),
-                format!("{}/{} · 失误 {}", run.hits, run.shots, run.misses),
-                theme::ACCENT_GREEN,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
+        let hero_left = column![
+            text("得分").size(10.5).color(theme::TEXT_MUTED),
+            text(format!("{:.1}", run.score))
+                .size(26)
+                .font(theme::FONT_BOLD)
+                .color(theme::TEXT_PRIMARY),
+            text(hero_sub_text).size(11).color(hero_sub_color),
         ]
-        .spacing(7)
+        .spacing(2)
         .width(Length::Fill);
 
-        let kpi_row2 = row![
-            compact_kpi_card(
-                "击杀速率 KPS",
-                format!("{:.2} /s", run.avg_kps),
-                format!("峰值 {:.1}/s · {}杀", run.peak_kps, run.kills),
-                theme::ACCENT_CYAN,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-            compact_kpi_card(
-                "平均 TTK",
-                format!("{:.0} ms", run.avg_ttk_s * 1000.0),
-                format!("间隔 {:.0}ms", run.avg_kill_interval_ms),
-                theme::ACCENT_AMBER,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
+        let hero_right = column![
+            text("命中率").size(10.5).color(theme::TEXT_MUTED),
+            text(format!("{:.1}%", run.accuracy))
+                .size(22)
+                .font(theme::FONT_BOLD)
+                .color(theme::TEXT_PRIMARY),
+            text(format!("{}/{} 命中", run.hits, run.shots))
+                .size(11)
+                .color(theme::TEXT_MUTED),
         ]
-        .spacing(7)
-        .width(Length::Fill);
+        .spacing(2)
+        .align_x(Alignment::End);
 
-        let kpi_row3 = row![
-            compact_kpi_card(
-                "一枪毙命 1-SHOT",
-                format!("{:.1}%", run.one_shot_pct),
-                format!("{}/{} · 补枪{:.0}ms", run.one_shot_kills, run.kills, run.multi_shot_avg_ttk_ms),
-                theme::ACCENT_GREEN,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-            compact_kpi_card(
-                "灵敏度 & FPS",
-                cm_str,
-                sens_sub,
-                theme::ACCENT_PURPLE,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-        ]
-        .spacing(7)
-        .width(Length::Fill);
+        let hero_card = container(row![hero_left, hero_right].align_y(Alignment::End))
+            .padding([12, 14])
+            .width(Length::Fill)
+            .style(theme::card_container);
 
-        // 2. Chart 1: Per-Second Dual-Axis Canvas
+        // ── TIER 2: 3-Column Secondary Strip (KPS / Avg TTK / 1-Shot) ────
+        let secondary_strip = container(
+            row![
+                secondary_metric_cell(
+                    "KPS",
+                    format!("{:.2}/s", run.avg_kps),
+                    format!("峰值 {:.1}", run.peak_kps),
+                ),
+                secondary_metric_cell(
+                    "平均 TTK",
+                    format!("{:.0} ms", run.avg_ttk_s * 1000.0),
+                    format!("间隔 {:.0}ms", run.avg_kill_interval_ms),
+                ),
+                secondary_metric_cell(
+                    "一枪率",
+                    format!("{:.1}%", run.one_shot_pct),
+                    format!("补枪 {:.0}ms", run.multi_shot_avg_ttk_ms),
+                ),
+            ]
+            .spacing(8)
+            .width(Length::Fill),
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .style(theme::card_container);
+
+        // ── TIER 3: Charts (Clean & Quiet) ───────────────────────────────
         let mut mode_row = Row::new().spacing(4).align_y(Alignment::Center);
         for m in PerSecondBarMode::ALL {
             mode_row = mode_row.push(
@@ -967,12 +949,30 @@ impl App {
             cache: &self.per_second_cache,
         })
         .width(Length::Fill)
-        .height(Length::Fixed(190.0));
+        .height(Length::Fixed(185.0));
+
+        let mut caption_parts = Vec::new();
+        if let Some(best) = &detail.best_kps_tick {
+            caption_parts.push(format!(
+                "峰值 {}s ({}杀)",
+                best.time_offset_s.round() as i32,
+                best.kills
+            ));
+        }
+        if let Some(worst) = &detail.worst_score_tick {
+            if worst.score < 0.0 {
+                caption_parts.push(format!(
+                    "掉分 {}s ({:+.0})",
+                    worst.time_offset_s.round() as i32,
+                    worst.score
+                ));
+            }
+        }
 
         let mut chart1_col = column![
             row![
                 text("逐秒表现")
-                    .size(12.5)
+                    .size(12)
                     .font(theme::FONT_BOLD)
                     .color(theme::TEXT_PRIMARY),
                 Space::new().width(Length::Fill),
@@ -983,65 +983,41 @@ impl App {
         ]
         .spacing(6);
 
-        let mut callouts = Row::new().spacing(6).align_y(Alignment::Center);
-        let mut has_callout = false;
-        if let Some(best) = &detail.best_kps_tick {
-            has_callout = true;
-            callouts = callouts.push(
-                container(
-                    text(format!("峰值 {}s: {}杀", best.time_offset_s.round() as i32, best.kills))
-                        .size(10)
-                        .color(theme::ACCENT_GREEN),
-                )
-                .padding([2, 6])
-                .style(theme::badge_container(theme::ACCENT_GREEN_DIM, theme::ACCENT_GREEN)),
+        if !caption_parts.is_empty() {
+            chart1_col = chart1_col.push(
+                text(caption_parts.join("  ·  "))
+                    .size(10.5)
+                    .color(theme::TEXT_MUTED),
             );
-        }
-        if let Some(worst) = &detail.worst_score_tick {
-            if worst.score < 0.0 {
-                has_callout = true;
-                callouts = callouts.push(
-                    container(
-                        text(format!("掉分 {}s: {:+.0}", worst.time_offset_s.round() as i32, worst.score))
-                            .size(10)
-                            .color(theme::ACCENT_RED),
-                    )
-                    .padding([2, 6])
-                    .style(theme::badge_container(theme::ACCENT_RED_DIM, theme::ACCENT_RED)),
-                );
-            }
-        }
-        if has_callout {
-            chart1_col = chart1_col.push(callouts);
         }
 
         let chart1_card = container(chart1_col)
-            .padding(10)
+            .padding(11)
             .width(Length::Fill)
             .style(theme::card_container);
 
-        // 3. Compact Half-Split Card
+        // Half-Split Card (compact & neutral)
         let half_split_card = self.view_half_split_card(detail);
 
-        // 4. Chart 2: Kill Interval Scatter Canvas
+        // Kill Interval Scatter Canvas
         let kill_canvas = canvas::Canvas::new(KillIntervalChart {
             kills: &detail.kills,
             avg_interval_ms: run.avg_kill_interval_ms,
             cache: &self.kill_interval_cache,
         })
         .width(Length::Fill)
-        .height(Length::Fixed(175.0));
+        .height(Length::Fixed(170.0));
 
         let chart2_card = container(
             column![
                 row![
-                    text("击杀节奏散点")
-                        .size(12.5)
+                    text("击杀节奏")
+                        .size(12)
                         .font(theme::FONT_BOLD)
                         .color(theme::TEXT_PRIMARY),
                     Space::new().width(Length::Fill),
                     text(format!(
-                        "{:.0}/{:.0}/{:.0}ms",
+                        "{:.0} / {:.0} / {:.0} ms",
                         run.fastest_kill_interval_ms,
                         run.avg_kill_interval_ms,
                         run.slowest_kill_interval_ms
@@ -1054,37 +1030,35 @@ impl App {
             ]
             .spacing(6),
         )
-        .padding(10)
+        .padding(11)
         .width(Length::Fill)
         .style(theme::card_container);
 
-        // 5. Compact Quick Run Selector at bottom
+        // Recent Runs quick selector
         let mut recent_runs_col = Column::new().spacing(4).width(Length::Fill);
         for r in self.scenario_runs.iter().take(8) {
             let active = r.id == run.id;
-            let pb_mark = if r.is_pb { " ★" } else { "" };
+            let pb_mark = if r.is_pb { " PB" } else { "" };
             recent_runs_col = recent_runs_col.push(
                 button(
                     row![
                         text(short_timestamp(&r.played_at))
                             .size(11)
-                            .color(theme::TEXT_SECONDARY)
+                            .color(theme::TEXT_MUTED)
                             .width(Length::Fill),
-                        text(format!("{:.1}{}", r.score, pb_mark))
+                        text(format!("{:.1}", r.score))
                             .size(11.5)
+                            .font(if active { theme::FONT_BOLD } else { theme::FONT_REGULAR })
+                            .color(theme::TEXT_PRIMARY),
+                        text(pb_mark)
+                            .size(10)
                             .font(theme::FONT_BOLD)
-                            .color(if r.is_pb {
-                                theme::ACCENT_GREEN
-                            } else if active {
-                                theme::ACCENT_CYAN
-                            } else {
-                                theme::TEXT_PRIMARY
-                            }),
+                            .color(theme::SEMANTIC_GREEN),
                         text(format!("{:.1}%", r.accuracy))
                             .size(11)
                             .color(theme::TEXT_MUTED),
                     ]
-                    .spacing(8)
+                    .spacing(6)
                     .align_y(Alignment::Center),
                 )
                 .width(Length::Fill)
@@ -1097,8 +1071,8 @@ impl App {
         let runs_card = container(
             column![
                 row![
-                    text("最近对局快速切换")
-                        .size(12.5)
+                    text("最近对局")
+                        .size(12)
                         .font(theme::FONT_BOLD)
                         .color(theme::TEXT_PRIMARY),
                     Space::new().width(Length::Fill),
@@ -1111,20 +1085,33 @@ impl App {
             ]
             .spacing(6),
         )
-        .padding(10)
+        .padding(11)
         .width(Length::Fill)
         .style(theme::card_container);
 
+        // ── TIER 4: Quiet Metadata Footer ────────────────────────────────
+        let sens_part = match run.cm_per_360 {
+            Some(cm) => format!("{:.1} cm/360 ({} {:.2} @ {}DPI)", cm, run.sens_scale, run.horiz_sens, run.dpi),
+            None => format!("{} {:.2} @ {}DPI", run.sens_scale, run.horiz_sens, run.dpi),
+        };
+        let meta_footer = container(
+            text(format!("{} · {:.0} FPS · {}", sens_part, run.avg_fps, run.resolution))
+                .size(10.5)
+                .color(theme::TEXT_MUTED),
+        )
+        .padding([4, 2])
+        .width(Length::Fill);
+
         column![
-            kpi_row1,
-            kpi_row2,
-            kpi_row3,
+            hero_card,
+            secondary_strip,
             chart1_card,
             half_split_card,
             chart2_card,
-            runs_card
+            runs_card,
+            meta_footer,
         ]
-        .spacing(9)
+        .spacing(10)
         .width(Length::Fill)
         .into()
     }
@@ -1133,26 +1120,31 @@ impl App {
         let content: Element<'a, Message> = match &detail.half_split {
             Some(hs) => {
                 let score_c = if hs.score_delta_pct >= 0.0 {
-                    theme::ACCENT_GREEN
+                    theme::SEMANTIC_GREEN
                 } else {
-                    theme::ACCENT_RED
+                    theme::SEMANTIC_RED
                 };
                 let acc_c = if hs.accuracy_delta_pp >= 0.0 {
-                    theme::ACCENT_GREEN
+                    theme::SEMANTIC_GREEN
                 } else {
-                    theme::ACCENT_RED
+                    theme::SEMANTIC_RED
                 };
                 let kps_c = if hs.kps_delta >= 0.0 {
-                    theme::ACCENT_GREEN
+                    theme::SEMANTIC_GREEN
                 } else {
-                    theme::ACCENT_RED
+                    theme::SEMANTIC_RED
                 };
 
                 column![
-                    text("前后半程诊断")
-                        .size(12.5)
-                        .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY),
+                    row![
+                        text("前后半程")
+                            .size(12)
+                            .font(theme::FONT_BOLD)
+                            .color(theme::TEXT_PRIMARY),
+                        Space::new().width(Length::Fill),
+                        text(&hs.diagnosis).size(10.5).color(theme::TEXT_SECONDARY),
+                    ]
+                    .align_y(Alignment::Center),
                     compact_half_row(
                         "得分",
                         format!("{:.0}", hs.first_half_score),
@@ -1174,36 +1166,31 @@ impl App {
                         format!("{:+.2}", hs.kps_delta),
                         kps_c,
                     ),
-                    container(text(&hs.diagnosis).size(11.5).color(theme::TEXT_PRIMARY))
-                        .padding([6, 8])
-                        .width(Length::Fill)
-                        .style(theme::badge_container(theme::BG_BASE, theme::BORDER_ACTIVE)),
                 ]
-                .spacing(6)
+                .spacing(5)
                 .into()
             }
             None => column![
-                text("前后半程诊断")
-                    .size(12.5)
+                text("前后半程")
+                    .size(12)
                     .font(theme::FONT_BOLD)
                     .color(theme::TEXT_PRIMARY),
-                text("需要 .perf 逐秒数据或更多击杀记录进行前后半程对比。")
-                    .size(11.5)
+                text("需要 .perf 逐秒数据或更多击杀记录进行对比。")
+                    .size(11)
                     .color(theme::TEXT_MUTED),
             ]
-            .spacing(5)
+            .spacing(4)
             .into(),
         };
 
         container(content)
-            .padding(10)
+            .padding(11)
             .width(Length::Fill)
             .style(theme::card_container)
             .into()
     }
 
     fn view_long_term_trend_tab(&self) -> Element<'_, Message> {
-        // Filter row 1: TimeRange + MA window
         let mut range_pills = Row::new().spacing(3);
         for r in TimeRange::ALL {
             let short = match r {
@@ -1230,7 +1217,6 @@ impl App {
             );
         }
 
-        // Filter row 2: Metric switcher (short labels so all 5 fit cleanly on 1 line)
         let mut metric_pills = Row::new().spacing(4).width(Length::Fill);
         for m in TrendMetric::ALL {
             let short = match m {
@@ -1265,7 +1251,7 @@ impl App {
         .width(Length::Fill)
         .style(theme::card_container);
 
-        // 2x2 Summary KPI grid
+        // Clean monochrome summary strip (2x2)
         let a = &self.trend_analysis;
         let unit = self.trend_metric.unit();
         let recent_str = match a.recent_delta_pct {
@@ -1273,54 +1259,51 @@ impl App {
             None => "—".to_string(),
         };
         let recent_color = match a.recent_delta_pct {
-            Some(d) if (d >= 0.0) == self.trend_metric.higher_is_better() => theme::ACCENT_GREEN,
-            Some(_) => theme::ACCENT_RED,
+            Some(d) if (d >= 0.0) == self.trend_metric.higher_is_better() => theme::SEMANTIC_GREEN,
+            Some(_) => theme::SEMANTIC_RED,
             None => theme::TEXT_MUTED,
         };
 
-        let sum_row1 = row![
-            compact_kpi_card(
-                "区间均值 MEAN",
-                format!("{:.1}{}", a.mean, unit),
-                format!("{} 局 · σ {:.1}", a.points.len(), a.std_dev),
-                theme::ACCENT_CYAN,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-            compact_kpi_card(
-                "区间最佳 PB",
-                format!("{:.1}{}", a.pb_value, unit),
-                format!("最低 {:.1}{}", a.min_val, unit),
-                theme::ACCENT_GREEN,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-        ]
-        .spacing(7)
-        .width(Length::Fill);
+        let sum_card = container(
+            column![
+                row![
+                    secondary_metric_cell(
+                        "区间均值",
+                        format!("{:.1}{}", a.mean, unit),
+                        format!("{} 局 · σ {:.1}", a.points.len(), a.std_dev),
+                    ),
+                    secondary_metric_cell(
+                        "区间最佳 PB",
+                        format!("{:.1}{}", a.pb_value, unit),
+                        format!("最低 {:.1}{}", a.min_val, unit),
+                    ),
+                ]
+                .spacing(8),
+                row![
+                    secondary_metric_cell(
+                        "稳定性 CV",
+                        format!("{:.1}%", a.cv_pct),
+                        "越低越稳定".to_string(),
+                    ),
+                    column![
+                        text("近期趋势").size(10).color(theme::TEXT_MUTED),
+                        text(recent_str)
+                            .size(15)
+                            .font(theme::FONT_BOLD)
+                            .color(recent_color),
+                        text("后段 vs 前段").size(10).color(theme::TEXT_MUTED),
+                    ]
+                    .spacing(2)
+                    .width(Length::FillPortion(1)),
+                ]
+                .spacing(8),
+            ]
+            .spacing(10),
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .style(theme::card_container);
 
-        let sum_row2 = row![
-            compact_kpi_card(
-                "稳定性 CV",
-                format!("{:.1}%", a.cv_pct),
-                "越低越稳定".to_string(),
-                theme::ACCENT_AMBER,
-                theme::TEXT_MUTED,
-                None,
-            ),
-            compact_kpi_card(
-                "近期趋势 Δ",
-                recent_str,
-                "后段 vs 前段均值".to_string(),
-                recent_color,
-                theme::TEXT_MUTED,
-                None,
-            ),
-        ]
-        .spacing(7)
-        .width(Length::Fill);
-
-        // Trend canvas
         let trend_canvas = canvas::Canvas::new(TrendChart {
             analysis: &self.trend_analysis,
             metric: self.trend_metric,
@@ -1328,15 +1311,15 @@ impl App {
             cache: &self.trend_cache,
         })
         .width(Length::Fill)
-        .height(Length::Fixed(210.0));
+        .height(Length::Fixed(205.0));
 
         let trend_card = container(trend_canvas)
             .padding(10)
             .width(Length::Fill)
             .style(theme::card_container);
 
-        // Stacked Config Group Comparison cards (fits 340px with zero overflow)
-        let mut group_col = Column::new().spacing(6).width(Length::Fill);
+        // Config Group Comparison (clean neutral rows)
+        let mut group_col = Column::new().spacing(5).width(Length::Fill);
         if self.config_groups.is_empty() {
             group_col = group_col.push(
                 text("暂无不同灵敏度 / FOV 分组数据")
@@ -1346,14 +1329,14 @@ impl App {
         } else {
             for g in &self.config_groups {
                 let cm_label = match g.cm_per_360 {
-                    Some(cm) => format!("{:.2} cm/360", cm),
+                    Some(cm) => format!("{:.1} cm/360", cm),
                     None => format!("{} {:.2}", g.sens_scale, g.horiz_sens),
                 };
                 let header = row![
                     text(format!("{} · FOV {:.0}", cm_label, g.fov))
                         .size(11.5)
                         .font(theme::FONT_BOLD)
-                        .color(theme::ACCENT_PURPLE)
+                        .color(theme::TEXT_PRIMARY)
                         .width(Length::Fill),
                     text(format!("{}局", g.run_count))
                         .size(10.5)
@@ -1364,47 +1347,46 @@ impl App {
                 let metrics = row![
                     text(format!("均 {:.1}", g.avg_score))
                         .size(11)
-                        .color(theme::ACCENT_CYAN),
+                        .color(theme::TEXT_SECONDARY),
                     text(format!("PB {:.1}", g.pb_score))
                         .size(11)
-                        .font(theme::FONT_BOLD)
-                        .color(theme::ACCENT_GREEN),
+                        .color(theme::TEXT_PRIMARY),
                     text(format!("准 {:.1}%", g.avg_accuracy))
                         .size(11)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(theme::TEXT_MUTED),
                     Space::new().width(Length::Fill),
                     text(format!("1S {:.0}%", g.avg_one_shot_pct))
                         .size(11)
-                        .color(theme::ACCENT_AMBER),
+                        .color(theme::TEXT_MUTED),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center);
 
                 group_col = group_col.push(
-                    container(column![header, metrics].spacing(4))
-                        .padding([7, 9])
+                    container(column![header, metrics].spacing(3))
+                        .padding([6, 8])
                         .width(Length::Fill)
-                        .style(theme::badge_container(theme::BG_BASE, theme::BORDER_SUBTLE)),
+                        .style(theme::subtle_row_container),
                 );
             }
         }
 
         let group_card = container(
             column![
-                text("灵敏度 / FOV 配置分组对比")
-                    .size(12.5)
+                text("配置分组对比")
+                    .size(12)
                     .font(theme::FONT_BOLD)
                     .color(theme::TEXT_PRIMARY),
                 group_col,
             ]
             .spacing(7),
         )
-        .padding(10)
+        .padding(11)
         .width(Length::Fill)
         .style(theme::card_container);
 
-        column![controls, sum_row1, sum_row2, trend_card, group_card]
-            .spacing(9)
+        column![controls, sum_card, trend_card, group_card]
+            .spacing(10)
             .width(Length::Fill)
             .into()
     }
@@ -1413,62 +1395,62 @@ impl App {
         let ov = &self.overview_stats;
         let today_mins = ov.today_duration_s / 60.0;
 
-        // 2x2 Today Summary Grid
-        let row1 = row![
-            compact_kpi_card(
-                "今日训练局数",
-                format!("{} 局", ov.today_runs),
-                "当日完成对局".to_string(),
-                theme::ACCENT_CYAN,
-                theme::TEXT_MUTED,
-                None,
-            ),
-            compact_kpi_card(
-                "今日有效时长",
-                format!("{:.1} 分", today_mins),
-                format!("{:.0}s 射击时长", ov.today_duration_s),
-                theme::TEXT_PRIMARY,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-        ]
-        .spacing(7)
-        .width(Length::Fill);
+        let summary_card = container(
+            column![
+                row![
+                    secondary_metric_cell(
+                        "今日局数",
+                        format!("{} 局", ov.today_runs),
+                        "当日完成对局".to_string(),
+                    ),
+                    secondary_metric_cell(
+                        "今日时长",
+                        format!("{:.1} 分", today_mins),
+                        format!("{:.0}s 射击", ov.today_duration_s),
+                    ),
+                ]
+                .spacing(8),
+                row![
+                    column![
+                        text("今日新 PB").size(10).color(theme::TEXT_MUTED),
+                        text(format!("{} 次", ov.today_new_pbs))
+                            .size(15)
+                            .font(theme::FONT_BOLD)
+                            .color(if ov.today_new_pbs > 0 {
+                                theme::SEMANTIC_GREEN
+                            } else {
+                                theme::TEXT_PRIMARY
+                            }),
+                        text("单日突破").size(10).color(theme::TEXT_MUTED),
+                    ]
+                    .spacing(2)
+                    .width(Length::FillPortion(1)),
+                    secondary_metric_cell(
+                        "累计归档",
+                        format!("{} 局", ov.total_runs),
+                        format!("{} 个项目", ov.total_scenarios),
+                    ),
+                ]
+                .spacing(8),
+            ]
+            .spacing(10),
+        )
+        .padding([10, 12])
+        .width(Length::Fill)
+        .style(theme::card_container);
 
-        let row2 = row![
-            compact_kpi_card(
-                "今日新 PB",
-                format!("{} 次", ov.today_new_pbs),
-                "单日突破记录".to_string(),
-                theme::ACCENT_GREEN,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-            compact_kpi_card(
-                "累计归档",
-                format!("{} 局", ov.total_runs),
-                format!("{} 个项目", ov.total_scenarios),
-                theme::ACCENT_AMBER,
-                theme::TEXT_SECONDARY,
-                None,
-            ),
-        ]
-        .spacing(7)
-        .width(Length::Fill);
-
-        // Heatmap card (18 weeks, auto-scaled to fit 340px cleanly)
         let heatmap_canvas = canvas::Canvas::new(HeatmapChart {
             cells: &ov.heatmap,
             cache: &self.heatmap_cache,
         })
         .width(Length::Fill)
-        .height(Length::Fixed(155.0));
+        .height(Length::Fixed(152.0));
 
         let heatmap_card = container(
             column![
                 row![
-                    text("训练日历热力图 (近18周)")
-                        .size(12.5)
+                    text("训练日历 (近18周)")
+                        .size(12)
                         .font(theme::FONT_BOLD)
                         .color(theme::TEXT_PRIMARY),
                     Space::new().width(Length::Fill),
@@ -1479,12 +1461,11 @@ impl App {
             ]
             .spacing(6),
         )
-        .padding(10)
+        .padding(11)
         .width(Length::Fill)
         .style(theme::card_container);
 
-        // Recent PB list
-        let mut pb_list = Column::new().spacing(5).width(Length::Fill);
+        let mut pb_list = Column::new().spacing(4).width(Length::Fill);
         if ov.recent_pbs.is_empty() {
             pb_list = pb_list.push(text("暂无 PB 记录").size(11.5).color(theme::TEXT_MUTED));
         } else {
@@ -1493,7 +1474,6 @@ impl App {
                     button(
                         column![
                             row![
-                                text("★").size(11).color(theme::ACCENT_AMBER),
                                 text(&pb.scenario)
                                     .size(11.5)
                                     .font(theme::FONT_BOLD)
@@ -1502,14 +1482,14 @@ impl App {
                                 text(format!("{:.1}", pb.score))
                                     .size(12)
                                     .font(theme::FONT_BOLD)
-                                    .color(theme::ACCENT_GREEN),
+                                    .color(theme::SEMANTIC_GREEN),
                             ]
                             .spacing(5)
                             .align_y(Alignment::Center),
                             row![
                                 text(format!("Acc {:.1}% · KPS {:.2}", pb.accuracy, pb.avg_kps))
                                     .size(10.5)
-                                    .color(theme::TEXT_SECONDARY),
+                                    .color(theme::TEXT_MUTED),
                                 Space::new().width(Length::Fill),
                                 text(short_timestamp(&pb.played_at))
                                     .size(10.5)
@@ -1517,7 +1497,7 @@ impl App {
                             ]
                             .align_y(Alignment::Center),
                         ]
-                        .spacing(3),
+                        .spacing(2),
                     )
                     .width(Length::Fill)
                     .padding([6, 8])
@@ -1532,97 +1512,68 @@ impl App {
 
         let pb_card = container(
             column![
-                text("近期突破 PB（点击复盘）")
-                    .size(12.5)
+                text("近期突破 PB")
+                    .size(12)
                     .font(theme::FONT_BOLD)
                     .color(theme::TEXT_PRIMARY),
                 pb_list,
             ]
-            .spacing(7),
+            .spacing(6),
         )
-        .padding(10)
+        .padding(11)
         .width(Length::Fill)
         .style(theme::card_container);
 
-        // CSV Export card
         let selected_label = self.selected_scenario.as_deref().unwrap_or("未选择项目");
         let export_card = container(
             column![
                 row![
                     text("导出 CSV")
-                        .size(12.5)
+                        .size(12)
                         .font(theme::FONT_BOLD)
                         .color(theme::TEXT_PRIMARY),
                     Space::new().width(Length::Fill),
-                    text(selected_label).size(11).color(theme::ACCENT_CYAN),
+                    text(selected_label).size(10.5).color(theme::TEXT_MUTED),
                 ]
                 .align_y(Alignment::Center),
                 button(
-                    container(text("导出当前项目全部历史 CSV").size(12).font(theme::FONT_BOLD))
+                    container(text("导出当前项目全部历史 CSV").size(11.5).font(theme::FONT_BOLD))
                         .width(Length::Fill)
                         .center_x(Length::Fill),
                 )
                 .width(Length::Fill)
-                .padding([7, 12])
+                .padding([7, 10])
                 .style(theme::primary_button)
                 .on_press(Message::ExportCurrentScenarioCsv),
             ]
-            .spacing(8),
+            .spacing(7),
         )
-        .padding(10)
+        .padding(11)
         .width(Length::Fill)
         .style(theme::card_container);
 
-        column![row1, row2, heatmap_card, pb_card, export_card]
-            .spacing(9)
+        column![summary_card, heatmap_card, pb_card, export_card]
+            .spacing(10)
             .width(Length::Fill)
             .into()
     }
 }
 
-fn compact_kpi_card<'a>(
+fn secondary_metric_cell<'a>(
     label: &'a str,
     value: String,
     subtitle: String,
-    value_color: Color,
-    sub_color: Color,
-    badge: Option<(&'a str, Color)>,
 ) -> Element<'a, Message> {
-    let mut top_row = Row::new()
-        .spacing(4)
-        .align_y(Alignment::Center)
-        .push(text(label).size(10).color(theme::TEXT_MUTED));
-
-    if let Some((badge_text, badge_color)) = badge {
-        top_row = top_row.push(Space::new().width(Length::Fill)).push(
-            container(
-                text(badge_text)
-                    .size(9)
-                    .font(theme::FONT_BOLD)
-                    .color(badge_color),
-            )
-            .padding([1, 5])
-            .style(theme::badge_container(
-                Color { a: 0.18, ..badge_color },
-                badge_color,
-            )),
-        );
-    }
-
-    container(
-        column![
-            top_row,
-            text(value)
-                .size(17.5)
-                .font(theme::FONT_BOLD)
-                .color(value_color),
-            text(subtitle).size(10).color(sub_color),
-        ]
-        .spacing(3),
-    )
-    .padding([8, 10])
+    column![
+        text(label).size(10).color(theme::TEXT_MUTED),
+        text(value)
+            .size(15)
+            .font(theme::FONT_BOLD)
+            .color(theme::TEXT_PRIMARY),
+        text(subtitle).size(10).color(theme::TEXT_MUTED),
+    ]
+    .spacing(2)
     .width(Length::FillPortion(1))
-    .style(theme::card_container)
     .into()
 }
 
@@ -1637,30 +1588,28 @@ fn compact_half_row<'a>(
         row![
             text(label)
                 .size(11)
-                .color(theme::TEXT_SECONDARY)
+                .color(theme::TEXT_MUTED)
                 .width(Length::Fixed(34.0)),
             text(format!("前 {}", first))
-                .size(11.5)
-                .color(theme::TEXT_PRIMARY)
+                .size(11)
+                .color(theme::TEXT_SECONDARY)
                 .width(Length::Fill),
             text(format!("后 {}", second))
-                .size(11.5)
+                .size(11)
                 .font(theme::FONT_BOLD)
                 .color(theme::TEXT_PRIMARY)
                 .width(Length::Fill),
-            container(text(delta).size(10.5).font(theme::FONT_BOLD).color(delta_color))
-                .padding([2, 6])
-                .style(theme::badge_container(
-                    Color { a: 0.16, ..delta_color },
-                    delta_color,
-                )),
+            text(delta)
+                .size(11)
+                .font(theme::FONT_BOLD)
+                .color(delta_color),
         ]
         .spacing(6)
         .align_y(Alignment::Center),
     )
     .padding([5, 8])
     .width(Length::Fill)
-    .style(theme::badge_container(theme::BG_BASE, theme::BORDER_SUBTLE))
+    .style(theme::subtle_row_container)
     .into()
 }
 

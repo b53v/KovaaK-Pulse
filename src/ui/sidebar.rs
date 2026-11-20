@@ -28,7 +28,7 @@ impl ScenarioSort {
     }
 }
 
-/// Compact top scenario picker bar + collapsible dropdown list for the narrow vertical widget.
+/// Clean neutral scenario picker bar + collapsible dropdown list.
 #[allow(clippy::too_many_arguments)]
 pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     scenarios: &'a [ScenarioSummary],
@@ -58,13 +58,13 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     };
 
     let mut header_row = row![
-        text(arrow).size(12).color(theme::ACCENT_CYAN),
+        text(arrow).size(11).color(theme::TEXT_MUTED),
         text(title_str)
             .size(12.5)
             .font(theme::FONT_BOLD)
             .color(theme::TEXT_PRIMARY)
             .width(Length::Fill),
-        text(meta_str).size(11).color(theme::ACCENT_GREEN),
+        text(meta_str).size(11).color(theme::TEXT_MUTED),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -72,13 +72,13 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     if let Some(active) = active_summary {
         let star_char = if active.is_favorite { "★" } else { "☆" };
         let star_color = if active.is_favorite {
-            theme::ACCENT_AMBER
+            theme::SEMANTIC_AMBER
         } else {
             theme::TEXT_MUTED
         };
         header_row = header_row.push(
-            button(text(star_char).size(12.5).color(star_color))
-                .padding([0, 4])
+            button(text(star_char).size(12).color(star_color))
+                .padding([0, 3])
                 .style(theme::ghost_button)
                 .on_press(on_toggle_star(active.scenario.clone())),
         );
@@ -86,7 +86,7 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
 
     let picker_bar = button(header_row)
         .width(Length::Fill)
-        .padding([7, 10])
+        .padding([6, 9])
         .style(theme::sidebar_item_button(is_open))
         .on_press(on_toggle_open);
 
@@ -127,9 +127,7 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
         .style(theme::search_input_style);
 
     let fav_btn = button(
-        text(if favorites_only { "★ 仅收藏" } else { "☆ 收藏" })
-            .size(11)
-            .font(theme::FONT_BOLD),
+        text(if favorites_only { "★ 仅收藏" } else { "☆ 收藏" }).size(11),
     )
     .padding([3, 7])
     .style(theme::pill_button(favorites_only))
@@ -169,12 +167,12 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
             let is_selected = selected_scenario == Some(item.scenario.as_str());
             let star_label = if item.is_favorite { "★" } else { "☆" };
             let star_color = if item.is_favorite {
-                theme::ACCENT_AMBER
+                theme::SEMANTIC_AMBER
             } else {
                 theme::TEXT_MUTED
             };
 
-            let star_btn = button(text(star_label).size(12).color(star_color))
+            let star_btn = button(text(star_label).size(11.5).color(star_color))
                 .padding([0, 3])
                 .style(theme::ghost_button)
                 .on_press(on_toggle_star(item.scenario.clone()));
@@ -182,12 +180,8 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
             let top_row = row![
                 text(&item.scenario)
                     .size(12)
-                    .font(theme::FONT_BOLD)
-                    .color(if is_selected {
-                        theme::ACCENT_CYAN
-                    } else {
-                        theme::TEXT_PRIMARY
-                    })
+                    .font(if is_selected { theme::FONT_BOLD } else { theme::FONT_REGULAR })
+                    .color(theme::TEXT_PRIMARY)
                     .width(Length::Fill),
                 star_btn,
             ]
@@ -197,11 +191,11 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
             let sub_row = row![
                 text(format!("PB {:.1}", item.pb_score))
                     .size(10.5)
-                    .color(theme::ACCENT_GREEN),
+                    .color(theme::TEXT_SECONDARY),
                 text("·").size(10.5).color(theme::TEXT_MUTED),
                 text(format!("最近 {:.1}", item.latest_score))
                     .size(10.5)
-                    .color(theme::TEXT_SECONDARY),
+                    .color(theme::TEXT_MUTED),
                 Space::new().width(Length::Fill),
                 text(format!("{}局", item.run_count))
                     .size(10.5)
@@ -225,7 +219,7 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
             scrollable::Scrollbar::new().width(4).scroller_width(4),
         ))
         .style(theme::subtle_scrollbar)
-        .height(Length::Fixed(185.0));
+        .height(Length::Fixed(180.0));
 
     let dropdown = container(
         column![search_box, filter_bar, list_scroll]

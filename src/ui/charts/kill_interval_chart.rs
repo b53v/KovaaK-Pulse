@@ -184,10 +184,10 @@ impl<'a> KillIntervalChart<'a> {
             frame.stroke(
                 &avg_line,
                 Stroke {
-                    style: Style::Solid(theme::ACCENT_AMBER),
-                    width: 1.2,
+                    style: Style::Solid(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.30)),
+                    width: 1.0,
                     line_dash: LineDash {
-                        segments: &[5.0, 4.0],
+                        segments: &[4.0, 4.0],
                         offset: 0,
                     },
                     ..Stroke::default()
@@ -209,19 +209,19 @@ impl<'a> KillIntervalChart<'a> {
         frame.stroke(
             &connect,
             Stroke::default()
-                .with_color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.12))
+                .with_color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.08))
                 .with_width(1.0),
         );
 
-        // Scatter dots: green = 1-shot, red = multi-shot
+        // Scatter dots: quiet slate for 1-shot kills, muted red ONLY for multi-shot kills
         for (i, kill) in self.kills.iter().enumerate() {
             let pt = self.point_for(size, i, kill);
             let color = if kill.is_one_shot {
-                theme::ACCENT_GREEN
+                iced::Color { a: 0.60, ..theme::TEXT_SECONDARY }
             } else {
-                theme::ACCENT_RED
+                theme::SEMANTIC_RED
             };
-            let radius = if kill.is_one_shot { 3.3 } else { 4.3 };
+            let radius = if kill.is_one_shot { 2.8 } else { 4.0 };
             let dot = Path::circle(pt, radius);
             frame.fill(&dot, color);
         }
@@ -262,13 +262,13 @@ impl<'a> KillIntervalChart<'a> {
     fn draw_hover(&self, frame: &mut Frame, size: Size, idx: usize, kill: &KillEvent) {
         let pt = self.point_for(size, idx, kill);
         let color = if kill.is_one_shot {
-            theme::ACCENT_GREEN
+            theme::TEXT_PRIMARY
         } else {
-            theme::ACCENT_RED
+            theme::SEMANTIC_RED
         };
 
-        let ring = Path::circle(pt, 6.5);
-        frame.stroke(&ring, Stroke::default().with_color(color).with_width(2.0));
+        let ring = Path::circle(pt, 6.0);
+        frame.stroke(&ring, Stroke::default().with_color(color).with_width(1.8));
 
         let interval_str = match kill.interval_ms {
             Some(ms) => format!("{:.0} ms", ms),

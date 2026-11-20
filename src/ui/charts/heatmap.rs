@@ -127,11 +127,11 @@ fn hit_test_slot(bounds: Rectangle, cursor: mouse::Cursor) -> Option<(usize, usi
 
 fn intensity_color(runs: u32) -> Color {
     match runs {
-        0 => Color::from_rgb(0x18 as f32 / 255.0, 0x1E as f32 / 255.0, 0x2C as f32 / 255.0),
-        1..=2 => Color::from_rgba(0.0, 0.83, 1.0, 0.25),
-        3..=5 => Color::from_rgba(0.0, 0.83, 1.0, 0.48),
-        6..=10 => Color::from_rgba(0.0, 0.83, 1.0, 0.74),
-        _ => theme::ACCENT_GREEN,
+        0 => Color::from_rgb(0x1E as f32 / 255.0, 0x22 as f32 / 255.0, 0x2B as f32 / 255.0),
+        1..=2 => Color { a: 0.24, ..theme::ACCENT_BLUE },
+        3..=5 => Color { a: 0.48, ..theme::ACCENT_BLUE },
+        6..=10 => Color { a: 0.72, ..theme::ACCENT_BLUE },
+        _ => theme::ACCENT_BLUE,
     }
 }
 
@@ -206,8 +206,8 @@ impl<'a> HeatmapChart<'a> {
                     frame.stroke(
                         &rect,
                         Stroke::default()
-                            .with_color(theme::ACCENT_AMBER)
-                            .with_width(1.3),
+                            .with_color(theme::SEMANTIC_GREEN)
+                            .with_width(1.2),
                     );
                 }
             }
@@ -234,10 +234,10 @@ impl<'a> HeatmapChart<'a> {
             lx += 13.0;
         }
         frame.fill_text(Text {
-            content: "多   (金框 = 当日刷新 PB)".to_string(),
+            content: "多  (绿框 = 刷新 PB)".to_string(),
             position: Point::new(lx + 4.0, legend_y + 1.0),
             color: theme::TEXT_MUTED,
-            size: 10.0.into(),
+            size: 9.5.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Top,
@@ -259,7 +259,7 @@ impl<'a> HeatmapChart<'a> {
             &highlight,
             Stroke::default()
                 .with_color(theme::TEXT_PRIMARY)
-                .with_width(1.6),
+                .with_width(1.4),
         );
 
         let date = date_for_slot(col, row);
@@ -271,11 +271,11 @@ impl<'a> HeatmapChart<'a> {
             Some(c) if c.run_count > 0 => {
                 let mins = c.total_duration_s / 60.0;
                 vec![
-                    (format!("训练局数: {} 局 ({} 个项目)", c.run_count, c.unique_scenarios), theme::TEXT_PRIMARY),
-                    (format!("有效时长: {:.1} 分钟", mins), theme::ACCENT_CYAN),
+                    (format!("训练局数: {} 局 ({} 项目)", c.run_count, c.unique_scenarios), theme::TEXT_PRIMARY),
+                    (format!("有效时长: {:.1} 分钟", mins), theme::TEXT_SECONDARY),
                     (
                         format!("当日新 PB: {}", c.new_pbs),
-                        if c.new_pbs > 0 { theme::ACCENT_AMBER } else { theme::TEXT_MUTED },
+                        if c.new_pbs > 0 { theme::SEMANTIC_GREEN } else { theme::TEXT_MUTED },
                     ),
                 ]
             }

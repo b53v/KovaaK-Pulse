@@ -53,7 +53,7 @@ pub fn draw_tooltip(
     frame.fill_text(Text {
         content: title.to_string(),
         position: Point::new(x + padding, y + padding),
-        color: theme::ACCENT_CYAN,
+        color: theme::TEXT_PRIMARY,
         size: 10.5.into(),
         font: theme::FONT_BOLD,
         align_x: text::Alignment::Left,

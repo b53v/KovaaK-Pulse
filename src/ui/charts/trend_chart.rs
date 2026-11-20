@@ -192,7 +192,7 @@ impl<'a> TrendChart<'a> {
             });
         }
 
-        // Sensitivity (cm/360) change vertical markers
+        // Sensitivity (cm/360) change vertical markers (subtle muted amber/gray)
         for (i, pt) in self.analysis.points.iter().enumerate() {
             if pt.sens_changed {
                 let p = self.point_xy(size, i, pt.value);
@@ -200,10 +200,10 @@ impl<'a> TrendChart<'a> {
                 frame.stroke(
                     &vline,
                     Stroke {
-                        style: Style::Solid(Color { a: 0.65, ..theme::ACCENT_PURPLE }),
-                        width: 1.2,
+                        style: Style::Solid(Color { a: 0.48, ..theme::SEMANTIC_AMBER }),
+                        width: 1.0,
                         line_dash: LineDash {
-                            segments: &[4.0, 3.0],
+                            segments: &[3.0, 3.0],
                             offset: 0,
                         },
                         ..Stroke::default()
@@ -213,9 +213,9 @@ impl<'a> TrendChart<'a> {
                     frame.fill_text(Text {
                         content: format!("{:.1}cm", cm),
                         position: Point::new(p.x + 3.0, PAD_TOP + 2.0),
-                        color: theme::ACCENT_PURPLE,
-                        size: 9.5.into(),
-                        font: theme::FONT_BOLD,
+                        color: theme::TEXT_MUTED,
+                        size: 9.0.into(),
+                        font: theme::FONT_REGULAR,
                         align_x: text::Alignment::Left,
                         align_y: alignment::Vertical::Top,
                         ..Text::default()
@@ -224,7 +224,7 @@ impl<'a> TrendChart<'a> {
             }
         }
 
-        // PB step envelope line
+        // PB step envelope line (subtle dashed neutral gray)
         if self.analysis.points.len() >= 2 {
             let pb_path = Path::new(|b| {
                 let mut prev_y = 0.0_f32;
@@ -233,7 +233,6 @@ impl<'a> TrendChart<'a> {
                     if i == 0 {
                         b.move_to(p);
                     } else {
-                        // Step horizontally first, then jump vertically
                         b.line_to(Point::new(p.x, prev_y));
                         b.line_to(p);
                     }
@@ -243,10 +242,10 @@ impl<'a> TrendChart<'a> {
             frame.stroke(
                 &pb_path,
                 Stroke {
-                    style: Style::Solid(Color { a: 0.72, ..theme::ACCENT_GREEN }),
-                    width: 1.5,
+                    style: Style::Solid(Color { a: 0.55, ..theme::TEXT_SECONDARY }),
+                    width: 1.2,
                     line_dash: LineDash {
-                        segments: &[6.0, 3.0],
+                        segments: &[5.0, 3.0],
                         offset: 0,
                     },
                     ..Stroke::default()
@@ -254,7 +253,7 @@ impl<'a> TrendChart<'a> {
             );
         }
 
-        // Moving average polyline
+        // Moving average polyline (calm slate-blue primary accent)
         let ma_path = Path::new(|b| {
             let mut started = false;
             for (i, pt) in self.analysis.points.iter().enumerate() {
@@ -272,21 +271,19 @@ impl<'a> TrendChart<'a> {
         frame.stroke(
             &ma_path,
             Stroke::default()
-                .with_color(theme::ACCENT_AMBER)
-                .with_width(2.2),
+                .with_color(theme::ACCENT_BLUE)
+                .with_width(2.0),
         );
 
         // Scatter points for each run
         for (i, pt) in self.analysis.points.iter().enumerate() {
             let p = self.point_xy(size, i, pt.value);
             if pt.is_pb {
-                let halo = Path::circle(p, 5.5);
-                frame.fill(&halo, theme::ACCENT_GREEN_DIM);
-                let dot = Path::circle(p, 3.8);
-                frame.fill(&dot, theme::ACCENT_GREEN);
+                let dot = Path::circle(p, 3.4);
+                frame.fill(&dot, theme::SEMANTIC_GREEN);
             } else {
-                let dot = Path::circle(p, 3.0);
-                frame.fill(&dot, Color { a: 0.85, ..theme::ACCENT_CYAN });
+                let dot = Path::circle(p, 2.5);
+                frame.fill(&dot, Color { a: 0.55, ..theme::TEXT_SECONDARY });
             }
         }
 
@@ -341,13 +338,13 @@ impl<'a> TrendChart<'a> {
                 .with_width(1.2),
         );
 
-        let ring = Path::circle(p, 6.0);
+        let ring = Path::circle(p, 5.5);
         frame.fill(&ring, theme::BG_BASE);
         frame.stroke(
             &ring,
             Stroke::default()
-                .with_color(if pt.is_pb { theme::ACCENT_GREEN } else { theme::ACCENT_CYAN })
-                .with_width(2.0),
+                .with_color(if pt.is_pb { theme::SEMANTIC_GREEN } else { theme::ACCENT_BLUE })
+                .with_width(1.8),
         );
 
         let mut lines = vec![
@@ -358,28 +355,28 @@ impl<'a> TrendChart<'a> {
                     self.format_metric_val(pt.value),
                     if pt.is_pb { "  [PB]" } else { "" }
                 ),
-                if pt.is_pb { theme::ACCENT_GREEN } else { theme::ACCENT_CYAN },
+                if pt.is_pb { theme::SEMANTIC_GREEN } else { theme::TEXT_PRIMARY },
             ),
             (
                 format!("得分: {:.1}   准度: {:.1}%   KPS: {:.2}", pt.score, pt.accuracy, pt.kps),
-                theme::TEXT_PRIMARY,
+                theme::TEXT_SECONDARY,
             ),
             (
                 format!("TTK: {:.0}ms   1-Shot: {:.1}%", pt.avg_ttk_ms, pt.one_shot_pct),
-                theme::TEXT_SECONDARY,
+                theme::TEXT_MUTED,
             ),
         ];
 
         if let Some(ma) = pt.ma_value {
             lines.push((
-                format!("MA{}: {}   PB 阶梯: {}", self.ma_window, self.format_metric_val(ma), self.format_metric_val(pt.pb_envelope)),
-                theme::ACCENT_AMBER,
+                format!("MA{}: {}   PB: {}", self.ma_window, self.format_metric_val(ma), self.format_metric_val(pt.pb_envelope)),
+                theme::ACCENT_BLUE,
             ));
         }
 
         if let Some(cm) = pt.cm_per_360 {
-            let tag = if pt.sens_changed { " (灵敏度变更)" } else { "" };
-            lines.push((format!("cm/360: {:.2} cm{}", cm, tag), theme::ACCENT_PURPLE));
+            let tag = if pt.sens_changed { " (变更)" } else { "" };
+            lines.push((format!("cm/360: {:.2} cm{}", cm, tag), theme::TEXT_MUTED));
         }
 
         draw_tooltip(
