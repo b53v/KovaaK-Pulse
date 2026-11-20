@@ -10,16 +10,17 @@ use iced::{Alignment, Color, Element, Length, Subscription, Task, Theme, window}
 
 use crate::config::{default_db_path, load_config, resolve_kovaak_dirs, save_config};
 use crate::model::{
-    AppConfig, ConfigGroupStats, OverviewStats, RunDetail, RunRecord, ScenarioSummary, TimeRange,
-    TrendAnalysis, TrendMetric, WatcherEvent,
+    AppConfig, ConfigGroupStats, Language, OverviewStats, RunDetail, RunRecord, ScenarioSummary,
+    ThemeMode, TimeRange, TrendAnalysis, TrendMetric, WatcherEvent,
 };
 use crate::storage::db::Database;
 use crate::ui::charts::heatmap::HeatmapChart;
 use crate::ui::charts::kill_interval_chart::KillIntervalChart;
 use crate::ui::charts::per_second_chart::{PerSecondBarMode, PerSecondChart};
 use crate::ui::charts::trend_chart::TrendChart;
+use crate::ui::i18n::{bar_mode_label, metric_short, t, tab_label, time_range_short};
 use crate::ui::sidebar::{ScenarioSort, view_scenario_picker};
-use crate::ui::theme;
+use crate::ui::theme::{self, UiPalette};
 use crate::ui::tray::{TrayAction, TrayController};
 use crate::watcher::{WatcherConfig, spawn_watcher};
 
@@ -37,14 +38,6 @@ impl ActiveTab {
         ActiveTab::LongTermTrend,
         ActiveTab::Overview,
     ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ActiveTab::SingleRun => "复盘",
-            ActiveTab::LongTermTrend => "趋势",
-            ActiveTab::Overview => "总览",
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,8 +73,11 @@ pub enum Message {
     ToggleNotifications,
     ToggleSingleMonitor,
     ToggleMinimizeToTray,
+    SetLanguage(Language),
+    SetThemeMode(ThemeMode),
     SaveSettings,
     DismissBanner,
+    HideToTray,
 
     // Background Watcher & Tray
     Watcher(WatcherEvent),
@@ -121,8 +117,8 @@ pub struct App {
 
     // Status & notifications (non-focus-stealing)
     watcher_online: bool,
-    watcher_status: String,
     last_ingest_ms: Option<u64>,
+    watcher_error: bool,
     banner: Option<(String, Color)>,
     is_syncing: bool,
 
@@ -167,12 +163,6 @@ impl App {
             .or_else(|| watched_dirs.as_ref().map(|(_, p)| p.display().to_string()))
             .unwrap_or_default();
 
-        let watcher_status = if watched_dirs.is_some() {
-            "监听中".to_string()
-        } else {
-            "未配置目录".to_string()
-        };
-
         let tray = TrayController::new();
 
         let mut app = Self {
@@ -193,8 +183,8 @@ impl App {
             stats_dir_input,
             perf_dir_input,
             watcher_online: false,
-            watcher_status,
             last_ingest_ms: None,
+            watcher_error: false,
             banner: None,
             is_syncing: false,
             scenarios: Vec::new(),
@@ -224,7 +214,28 @@ impl App {
     }
 
     pub fn theme(&self) -> Theme {
-        theme::app_theme()
+        theme::app_theme(self.config.theme)
+    }
+
+    fn palette(&self) -> UiPalette {
+        UiPalette::from_mode(self.config.theme)
+    }
+
+    fn lang(&self) -> Language {
+        self.config.language
+    }
+
+    fn watcher_status_text(&self) -> String {
+        let lang = self.lang();
+        if self.watcher_error {
+            t(lang, "异常", "Error").to_string()
+        } else if self.watched_dirs.is_none() {
+            t(lang, "未配置目录", "No folder").to_string()
+        } else if let Some(ms) = self.last_ingest_ms {
+            format!("{:.2}s", ms as f64 / 1000.0)
+        } else {
+            t(lang, "监听中", "Live").to_string()
+        }
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
@@ -252,6 +263,9 @@ impl App {
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let p = self.palette();
+        let lang = self.lang();
+
         match message {
             Message::SelectTab(tab) => {
                 self.active_tab = tab;
@@ -343,17 +357,21 @@ impl App {
                         .and_then(|db| db.export_scenario_csv(scenario, &out_path))
                     {
                         Ok(count) => {
-                            self.banner = Some((
-                                format!("已导出 {} 条至 {}", count, out_path.display()),
-                                theme::SEMANTIC_GREEN,
-                            ));
+                            let msg = match lang {
+                                Language::Zh => format!("已导出 {} 条至 {}", count, out_path.display()),
+                                Language::En => format!("Exported {} runs to {}", count, out_path.display()),
+                            };
+                            self.banner = Some((msg, p.semantic_green));
                         }
                         Err(e) => {
-                            self.banner = Some((format!("导出失败: {}", e), theme::SEMANTIC_RED));
+                            self.banner = Some((format!("{}: {}", t(lang, "导出失败", "Export failed"), e), p.semantic_red));
                         }
                     }
                 } else {
-                    self.banner = Some(("请先选择一个训练项目".to_string(), theme::BORDER_ACTIVE));
+                    self.banner = Some((
+                        t(lang, "请先选择一个训练项目", "Select a scenario first").to_string(),
+                        p.border_active,
+                    ));
                 }
                 Task::none()
             }
@@ -371,16 +389,17 @@ impl App {
                     Ok((imported, skipped, elapsed_ms)) => {
                         if imported > 0 {
                             self.reload_all_data(None);
-                            self.banner = Some((
-                                format!("同步完成：新增 {} 局，跳过 {} 局（{}ms）", imported, skipped, elapsed_ms),
-                                theme::BORDER_ACTIVE,
-                            ));
+                            let msg = match lang {
+                                Language::Zh => format!("同步完成：新增 {} 局，跳过 {} 局（{}ms）", imported, skipped, elapsed_ms),
+                                Language::En => format!("Synced: +{} new, {} skipped ({}ms)", imported, skipped, elapsed_ms),
+                            };
+                            self.banner = Some((msg, p.border_active));
                         } else if self.scenarios.is_empty() {
                             self.reload_all_data(None);
                         }
                     }
                     Err(e) => {
-                        self.banner = Some((format!("同步失败: {}", e), theme::SEMANTIC_RED));
+                        self.banner = Some((format!("{}: {}", t(lang, "同步失败", "Sync failed"), e), p.semantic_red));
                     }
                 }
                 Task::none()
@@ -412,6 +431,22 @@ impl App {
                 let _ = save_config(&self.config);
                 Task::none()
             }
+            Message::SetLanguage(new_lang) => {
+                if self.config.language != new_lang {
+                    self.config.language = new_lang;
+                    let _ = save_config(&self.config);
+                    self.clear_chart_caches();
+                }
+                Task::none()
+            }
+            Message::SetThemeMode(new_mode) => {
+                if self.config.theme != new_mode {
+                    self.config.theme = new_mode;
+                    let _ = save_config(&self.config);
+                    self.clear_chart_caches();
+                }
+                Task::none()
+            }
             Message::SaveSettings => {
                 let s_trim = self.stats_dir_input.trim();
                 let p_trim = self.perf_dir_input.trim();
@@ -429,20 +464,27 @@ impl App {
                 self.watched_dirs = resolve_kovaak_dirs(&self.config);
                 self.watcher_generation = self.watcher_generation.wrapping_add(1);
                 self.show_settings = false;
-                self.banner = Some(("设置已保存，正在重新监听".to_string(), theme::BORDER_ACTIVE));
+                self.banner = Some((
+                    t(lang, "设置已保存，正在重新监听", "Settings saved, restarting watcher").to_string(),
+                    p.border_active,
+                ));
                 self.spawn_sync_task()
             }
             Message::DismissBanner => {
                 self.banner = None;
                 Task::none()
             }
+            Message::HideToTray => {
+                if self.tray.is_active() {
+                    window::oldest().and_then(|id| window::set_mode(id, window::Mode::Hidden))
+                } else {
+                    window::oldest().and_then(|id| window::minimize(id, true))
+                }
+            }
             Message::Watcher(ev) => match ev {
                 WatcherEvent::WatcherReady { .. } => {
                     self.watcher_online = true;
-                    self.watcher_status = match self.last_ingest_ms {
-                        Some(ms) => format!("{:.2}s", ms as f64 / 1000.0),
-                        None => "监听中".to_string(),
-                    };
+                    self.watcher_error = false;
                     Task::none()
                 }
                 WatcherEvent::SyncCompleted { imported, .. } => {
@@ -462,14 +504,14 @@ impl App {
                 } => {
                     // Never steal foreground focus over KovaaK's!
                     self.watcher_online = true;
+                    self.watcher_error = false;
                     self.last_ingest_ms = Some(elapsed_ms);
-                    self.watcher_status = format!("{:.2}s", elapsed_ms as f64 / 1000.0);
                     self.selected_scenario = Some(scenario.clone());
                     self.reload_all_data(Some(run_id));
 
                     let pb_tag = if is_new_pb { " · NEW PB" } else { "" };
                     let summary = format!(
-                        "{} · {:.1}分 · {:.1}% · {:.2}/s{} ({:.2}s)",
+                        "{} · {:.1} · {:.1}% · {:.2}/s{} ({:.2}s)",
                         scenario,
                         score,
                         accuracy,
@@ -481,9 +523,9 @@ impl App {
                         self.banner = Some((
                             summary.clone(),
                             if is_new_pb {
-                                theme::SEMANTIC_GREEN
+                                p.semantic_green
                             } else {
-                                theme::BORDER_ACTIVE
+                                p.border_active
                             },
                         ));
                     }
@@ -492,8 +534,8 @@ impl App {
                 }
                 WatcherEvent::Error(err) => {
                     self.watcher_online = false;
-                    self.watcher_status = "异常".to_string();
-                    self.banner = Some((format!("监听异常: {}", err), theme::SEMANTIC_RED));
+                    self.watcher_error = true;
+                    self.banner = Some((format!("{}: {}", t(lang, "监听异常", "Watcher error"), err), p.semantic_red));
                     Task::none()
                 }
             },
@@ -503,6 +545,7 @@ impl App {
                         TrayAction::ShowWindow => {
                             return window::oldest().and_then(|id| {
                                 Task::batch([
+                                    window::set_mode(id, window::Mode::Windowed),
                                     window::minimize(id, false),
                                     window::gain_focus(id),
                                 ])
@@ -520,7 +563,8 @@ impl App {
             }
             Message::WindowCloseRequested(id) => {
                 if self.config.minimize_to_tray && self.tray.is_active() {
-                    window::minimize(id, true)
+                    // Real hide-to-tray (disappears from taskbar until restored via tray icon)
+                    window::set_mode(id, window::Mode::Hidden)
                 } else {
                     iced::exit()
                 }
@@ -546,7 +590,7 @@ impl App {
                     Ok((imported, skipped, start.elapsed().as_millis() as u64))
                 })
                 .await
-                .map_err(|e| format!("后台同步任务失败: {}", e))?
+                .map_err(|e| format!("Sync task failed: {}", e))?
             },
             Message::SyncFinished,
         )
@@ -630,8 +674,13 @@ impl App {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let header = self.view_compact_header();
+        let p = self.palette();
+        let lang = self.lang();
+
+        let header = self.view_compact_header(p, lang);
         let picker = view_scenario_picker(
+            p,
+            lang,
             &self.scenarios,
             self.selected_scenario.as_deref(),
             self.scenario_picker_open,
@@ -649,30 +698,30 @@ impl App {
         let mut body_col = Column::new().spacing(10).width(Length::Fill);
 
         if self.show_settings {
-            body_col = body_col.push(self.view_settings_panel());
+            body_col = body_col.push(self.view_settings_panel(p, lang));
         }
 
         if let Some((msg, accent)) = &self.banner {
             let banner = container(
                 row![
-                    text(msg).size(11.5).color(theme::TEXT_PRIMARY).width(Length::Fill),
+                    text(msg).size(11.5).color(p.text_primary).width(Length::Fill),
                     button(text("✕").size(11))
                         .padding([2, 6])
-                        .style(theme::ghost_button)
+                        .style(theme::ghost_button(p))
                         .on_press(Message::DismissBanner),
                 ]
                 .align_y(Alignment::Center),
             )
             .padding([6, 9])
             .width(Length::Fill)
-            .style(theme::banner_container(*accent));
+            .style(theme::banner_container(p, *accent));
             body_col = body_col.push(banner);
         }
 
         let tab_content = match self.active_tab {
-            ActiveTab::SingleRun => self.view_single_run_tab(),
-            ActiveTab::LongTermTrend => self.view_long_term_trend_tab(),
-            ActiveTab::Overview => self.view_overview_tab(),
+            ActiveTab::SingleRun => self.view_single_run_tab(p, lang),
+            ActiveTab::LongTermTrend => self.view_long_term_trend_tab(p, lang),
+            ActiveTab::Overview => self.view_overview_tab(p, lang),
         };
         body_col = body_col.push(tab_content);
 
@@ -680,7 +729,7 @@ impl App {
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::new().width(5).scroller_width(5),
             ))
-            .style(theme::subtle_scrollbar)
+            .style(theme::subtle_scrollbar(p))
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -691,39 +740,48 @@ impl App {
         )
         .width(Length::Fill)
         .height(Length::Fill)
-        .style(theme::base_container)
+        .style(theme::base_container(p))
         .into()
     }
 
-    fn view_compact_header(&self) -> Element<'_, Message> {
+    fn view_compact_header(&self, p: UiPalette, lang: Language) -> Element<'_, Message> {
         let dot_color = if self.watcher_online {
-            theme::SEMANTIC_GREEN
+            p.semantic_green
         } else {
-            theme::TEXT_MUTED
+            p.text_muted
         };
 
         let sync_label = if self.is_syncing { "…" } else { "↻" };
 
-        let status_row = row![
+        let mut status_row = row![
             text("KovaaK Pulse")
                 .size(13.5)
                 .font(theme::FONT_BOLD)
-                .color(theme::TEXT_PRIMARY),
+                .color(p.text_primary),
             Space::new().width(4),
             text("●").size(8).color(dot_color),
-            text(&self.watcher_status).size(10.5).color(theme::TEXT_MUTED),
+            text(self.watcher_status_text()).size(10.5).color(p.text_muted),
             Space::new().width(Length::Fill),
             button(text(sync_label).size(12.5))
                 .padding([3, 7])
-                .style(theme::ghost_button)
+                .style(theme::ghost_button(p))
                 .on_press(Message::TriggerManualSync),
             button(text("⚙").size(12.5))
                 .padding([3, 7])
-                .style(theme::ghost_button)
+                .style(theme::ghost_button(p))
                 .on_press(Message::ToggleSettings),
         ]
         .spacing(4)
         .align_y(Alignment::Center);
+
+        if self.tray.is_active() {
+            status_row = status_row.push(
+                button(text("▾").size(12.5))
+                    .padding([3, 7])
+                    .style(theme::ghost_button(p))
+                    .on_press(Message::HideToTray),
+            );
+        }
 
         let mut tabs_row = Row::new().spacing(3).width(Length::Fill);
         for tab in ActiveTab::ALL {
@@ -731,7 +789,7 @@ impl App {
             tabs_row = tabs_row.push(
                 button(
                     container(
-                        text(tab.label())
+                        text(tab_label(*tab, lang))
                             .size(12)
                             .font(if active { theme::FONT_BOLD } else { theme::FONT_REGULAR }),
                     )
@@ -740,7 +798,7 @@ impl App {
                 )
                 .width(Length::FillPortion(1))
                 .padding([5, 6])
-                .style(theme::tab_button(active))
+                .style(theme::tab_button(p, active))
                 .on_press(Message::SelectTab(*tab)),
             );
         }
@@ -748,112 +806,159 @@ impl App {
         let segmented_bar = container(tabs_row)
             .padding(3)
             .width(Length::Fill)
-            .style(theme::segmented_track_container);
+            .style(theme::segmented_track_container(p));
 
         container(column![status_row, segmented_bar].spacing(8).width(Length::Fill))
             .padding([8, 10])
             .width(Length::Fill)
-            .style(theme::topbar_container)
+            .style(theme::topbar_container(p))
             .into()
     }
 
-    fn view_settings_panel(&self) -> Element<'_, Message> {
-        let stats_input = text_input("stats 目录路径...", &self.stats_dir_input)
-            .on_input(Message::StatsDirInputChanged)
-            .padding([5, 8])
-            .size(11.5)
-            .style(theme::search_input_style);
-
-        let perf_input = text_input("performances 目录路径...", &self.perf_dir_input)
-            .on_input(Message::PerfDirInputChanged)
-            .padding([5, 8])
-            .size(11.5)
-            .style(theme::search_input_style);
-
-        let toggle_row = row![
-            button(
-                text(if self.config.single_monitor_mode {
-                    "✓ 单屏"
-                } else {
-                    "○ 双屏"
-                })
-                .size(11),
-            )
-            .padding([4, 7])
-            .style(theme::pill_button(self.config.single_monitor_mode))
-            .on_press(Message::ToggleSingleMonitor),
-            button(
-                text(if self.config.minimize_to_tray {
-                    "✓ 最小化托盘"
-                } else {
-                    "○ 直接退出"
-                })
-                .size(11),
-            )
-            .padding([4, 7])
-            .style(theme::pill_button(self.config.minimize_to_tray))
-            .on_press(Message::ToggleMinimizeToTray),
-            button(
-                text(if self.config.notifications_enabled {
-                    "✓ 提示"
-                } else {
-                    "○ 静默"
-                })
-                .size(11),
-            )
-            .padding([4, 7])
-            .style(theme::pill_button(self.config.notifications_enabled))
-            .on_press(Message::ToggleNotifications),
+    fn view_settings_panel(&self, p: UiPalette, lang: Language) -> Element<'_, Message> {
+        let lang_row = row![
+            text(t(lang, "语言", "Language"))
+                .size(11)
+                .color(p.text_secondary)
+                .width(Length::Fill),
+            button(text("中文").size(11))
+                .padding([3, 10])
+                .style(theme::pill_button(p, self.config.language == Language::Zh))
+                .on_press(Message::SetLanguage(Language::Zh)),
+            button(text("EN").size(11))
+                .padding([3, 10])
+                .style(theme::pill_button(p, self.config.language == Language::En))
+                .on_press(Message::SetLanguage(Language::En)),
         ]
         .spacing(5)
         .align_y(Alignment::Center);
 
+        let theme_row = row![
+            text(t(lang, "主题", "Theme"))
+                .size(11)
+                .color(p.text_secondary)
+                .width(Length::Fill),
+            button(text(t(lang, "深色", "Dark")).size(11))
+                .padding([3, 10])
+                .style(theme::pill_button(p, self.config.theme == ThemeMode::Dark))
+                .on_press(Message::SetThemeMode(ThemeMode::Dark)),
+            button(text(t(lang, "浅色", "Light")).size(11))
+                .padding([3, 10])
+                .style(theme::pill_button(p, self.config.theme == ThemeMode::Light))
+                .on_press(Message::SetThemeMode(ThemeMode::Light)),
+        ]
+        .spacing(5)
+        .align_y(Alignment::Center);
+
+        let stats_input = text_input(t(lang, "stats 目录路径...", "stats folder path..."), &self.stats_dir_input)
+            .on_input(Message::StatsDirInputChanged)
+            .padding([5, 8])
+            .size(11.5)
+            .style(theme::search_input_style(p));
+
+        let perf_input = text_input(
+            t(lang, "performances 目录路径...", "performances folder path..."),
+            &self.perf_dir_input,
+        )
+        .on_input(Message::PerfDirInputChanged)
+        .padding([5, 8])
+        .size(11.5)
+        .style(theme::search_input_style(p));
+
+        let toggle_row = row![
+            button(
+                text(if self.config.single_monitor_mode {
+                    t(lang, "✓ 单屏", "✓ 1-Mon")
+                } else {
+                    t(lang, "○ 双屏", "○ 2-Mon")
+                })
+                .size(10.5),
+            )
+            .padding([4, 6])
+            .style(theme::pill_button(p, self.config.single_monitor_mode))
+            .on_press(Message::ToggleSingleMonitor),
+            button(
+                text(if self.config.minimize_to_tray {
+                    t(lang, "✓ 关闭隐藏到托盘", "✓ Hide to Tray")
+                } else {
+                    t(lang, "○ 关闭退出", "○ Quit on X")
+                })
+                .size(10.5),
+            )
+            .padding([4, 6])
+            .style(theme::pill_button(p, self.config.minimize_to_tray))
+            .on_press(Message::ToggleMinimizeToTray),
+            button(
+                text(if self.config.notifications_enabled {
+                    t(lang, "✓ 提示", "✓ Toast")
+                } else {
+                    t(lang, "○ 静默", "○ Quiet")
+                })
+                .size(10.5),
+            )
+            .padding([4, 6])
+            .style(theme::pill_button(p, self.config.notifications_enabled))
+            .on_press(Message::ToggleNotifications),
+        ]
+        .spacing(4)
+        .align_y(Alignment::Center);
+
         container(
             column![
-                text("目录与偏好设置")
+                text(t(lang, "偏好设置", "Settings"))
                     .size(12)
                     .font(theme::FONT_BOLD)
-                    .color(theme::TEXT_PRIMARY),
-                text("Stats 目录").size(10.5).color(theme::TEXT_MUTED),
+                    .color(p.text_primary),
+                lang_row,
+                theme_row,
+                text(t(lang, "Stats 目录", "Stats Folder")).size(10.5).color(p.text_muted),
                 stats_input,
-                text("Performances 目录").size(10.5).color(theme::TEXT_MUTED),
+                text(t(lang, "Performances 目录", "Performances Folder")).size(10.5).color(p.text_muted),
                 perf_input,
                 toggle_row,
                 button(
-                    container(text("保存并重新监听").size(12).font(theme::FONT_BOLD))
-                        .width(Length::Fill)
-                        .center_x(Length::Fill),
+                    container(
+                        text(t(lang, "保存目录并重新监听", "Save Folders & Restart Watcher"))
+                            .size(11.5)
+                            .font(theme::FONT_BOLD),
+                    )
+                    .width(Length::Fill)
+                    .center_x(Length::Fill),
                 )
                 .width(Length::Fill)
                 .padding([6, 10])
-                .style(theme::primary_button)
+                .style(theme::primary_button(p))
                 .on_press(Message::SaveSettings),
             ]
-            .spacing(6),
+            .spacing(7),
         )
         .padding(10)
         .width(Length::Fill)
-        .style(theme::card_container)
+        .style(theme::card_container(p))
         .into()
     }
 
-    fn view_single_run_tab(&self) -> Element<'_, Message> {
+    fn view_single_run_tab(&self, p: UiPalette, lang: Language) -> Element<'_, Message> {
         let Some(detail) = &self.selected_run_detail else {
             return container(
                 column![
-                    text("暂无对局数据")
+                    text(t(lang, "暂无对局数据", "No Run Data Yet"))
                         .size(14)
                         .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY),
-                    text("完成一局 KovaaK's Challenge 或点击右上角 ↻ 同步本地记录。")
-                        .size(12)
-                        .color(theme::TEXT_SECONDARY),
+                        .color(p.text_primary),
+                    text(t(
+                        lang,
+                        "完成一局 KovaaK's Challenge 或点击右上角 ↻ 同步本地记录。",
+                        "Finish a KovaaK's Challenge or click ↻ above to sync local files."
+                    ))
+                    .size(12)
+                    .color(p.text_secondary),
                 ]
                 .spacing(6),
             )
             .padding(16)
             .width(Length::Fill)
-            .style(theme::card_container)
+            .style(theme::card_container(p))
             .into();
         };
 
@@ -862,40 +967,45 @@ impl App {
         // ── TIER 1: Hero Card (Score + Accuracy) ──────────────────────────
         let (hero_sub_text, hero_sub_color) = if run.is_pb {
             match detail.delta_vs_last10 {
-                Some(d) => (format!("NEW PB · {:+.1} vs 近10局", d), theme::SEMANTIC_GREEN),
-                None => ("NEW PB".to_string(), theme::SEMANTIC_GREEN),
+                Some(d) => match lang {
+                    Language::Zh => (format!("NEW PB · {:+.1} vs 近10局", d), p.semantic_green),
+                    Language::En => (format!("NEW PB · {:+.1} vs last 10", d), p.semantic_green),
+                },
+                None => ("NEW PB".to_string(), p.semantic_green),
             }
         } else if let Some(d) = detail.delta_vs_last10 {
-            let color = if d >= 0.0 {
-                theme::SEMANTIC_GREEN
-            } else {
-                theme::SEMANTIC_RED
+            let color = if d >= 0.0 { p.semantic_green } else { p.semantic_red };
+            let txt = match lang {
+                Language::Zh => format!("{:+.1} vs 近10局均值", d),
+                Language::En => format!("{:+.1} vs last 10 avg", d),
             };
-            (format!("{:+.1} vs 近10局均值", d), color)
+            (txt, color)
         } else {
-            (short_timestamp(&run.played_at), theme::TEXT_MUTED)
+            (short_timestamp(&run.played_at), p.text_muted)
         };
 
         let hero_left = column![
-            text("得分").size(10.5).color(theme::TEXT_MUTED),
+            text(t(lang, "得分", "Score")).size(10.5).color(p.text_muted),
             text(format!("{:.1}", run.score))
                 .size(26)
                 .font(theme::FONT_BOLD)
-                .color(theme::TEXT_PRIMARY),
+                .color(p.text_primary),
             text(hero_sub_text).size(11).color(hero_sub_color),
         ]
         .spacing(2)
         .width(Length::Fill);
 
+        let hits_sub = match lang {
+            Language::Zh => format!("{}/{} 命中", run.hits, run.shots),
+            Language::En => format!("{}/{} hits", run.hits, run.shots),
+        };
         let hero_right = column![
-            text("命中率").size(10.5).color(theme::TEXT_MUTED),
+            text(t(lang, "命中率", "Accuracy")).size(10.5).color(p.text_muted),
             text(format!("{:.1}%", run.accuracy))
                 .size(22)
                 .font(theme::FONT_BOLD)
-                .color(theme::TEXT_PRIMARY),
-            text(format!("{}/{} 命中", run.hits, run.shots))
-                .size(11)
-                .color(theme::TEXT_MUTED),
+                .color(p.text_primary),
+            text(hits_sub).size(11).color(p.text_muted),
         ]
         .spacing(2)
         .align_x(Alignment::End);
@@ -903,25 +1013,37 @@ impl App {
         let hero_card = container(row![hero_left, hero_right].align_y(Alignment::End))
             .padding([12, 14])
             .width(Length::Fill)
-            .style(theme::card_container);
+            .style(theme::card_container(p));
 
         // ── TIER 2: 3-Column Secondary Strip (KPS / Avg TTK / 1-Shot) ────
         let secondary_strip = container(
             row![
                 secondary_metric_cell(
+                    p,
                     "KPS",
                     format!("{:.2}/s", run.avg_kps),
-                    format!("峰值 {:.1}", run.peak_kps),
+                    match lang {
+                        Language::Zh => format!("峰值 {:.1}", run.peak_kps),
+                        Language::En => format!("Peak {:.1}", run.peak_kps),
+                    },
                 ),
                 secondary_metric_cell(
-                    "平均 TTK",
+                    p,
+                    t(lang, "平均 TTK", "Avg TTK"),
                     format!("{:.0} ms", run.avg_ttk_s * 1000.0),
-                    format!("间隔 {:.0}ms", run.avg_kill_interval_ms),
+                    match lang {
+                        Language::Zh => format!("间隔 {:.0}ms", run.avg_kill_interval_ms),
+                        Language::En => format!("Int {:.0}ms", run.avg_kill_interval_ms),
+                    },
                 ),
                 secondary_metric_cell(
-                    "一枪率",
+                    p,
+                    t(lang, "一枪率", "1-Shot"),
                     format!("{:.1}%", run.one_shot_pct),
-                    format!("补枪 {:.0}ms", run.multi_shot_avg_ttk_ms),
+                    match lang {
+                        Language::Zh => format!("补枪 {:.0}ms", run.multi_shot_avg_ttk_ms),
+                        Language::En => format!("Multi {:.0}ms", run.multi_shot_avg_ttk_ms),
+                    },
                 ),
             ]
             .spacing(8)
@@ -929,15 +1051,15 @@ impl App {
         )
         .padding([10, 12])
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         // ── TIER 3: Charts (Clean & Quiet) ───────────────────────────────
         let mut mode_row = Row::new().spacing(4).align_y(Alignment::Center);
         for m in PerSecondBarMode::ALL {
             mode_row = mode_row.push(
-                button(text(m.label()).size(10.5))
+                button(text(bar_mode_label(*m, lang)).size(10.5))
                     .padding([3, 7])
-                    .style(theme::pill_button(*m == self.per_second_mode))
+                    .style(theme::pill_button(p, *m == self.per_second_mode))
                     .on_press(Message::SetPerSecondMode(*m)),
             );
         }
@@ -946,6 +1068,8 @@ impl App {
             ticks: &detail.ticks,
             mode: self.per_second_mode,
             avg_accuracy: run.accuracy,
+            palette: p,
+            lang,
             cache: &self.per_second_cache,
         })
         .width(Length::Fill)
@@ -953,28 +1077,26 @@ impl App {
 
         let mut caption_parts = Vec::new();
         if let Some(best) = &detail.best_kps_tick {
-            caption_parts.push(format!(
-                "峰值 {}s ({}杀)",
-                best.time_offset_s.round() as i32,
-                best.kills
-            ));
+            caption_parts.push(match lang {
+                Language::Zh => format!("峰值 {}s ({}杀)", best.time_offset_s.round() as i32, best.kills),
+                Language::En => format!("Peak {}s ({}k)", best.time_offset_s.round() as i32, best.kills),
+            });
         }
         if let Some(worst) = &detail.worst_score_tick {
             if worst.score < 0.0 {
-                caption_parts.push(format!(
-                    "掉分 {}s ({:+.0})",
-                    worst.time_offset_s.round() as i32,
-                    worst.score
-                ));
+                caption_parts.push(match lang {
+                    Language::Zh => format!("掉分 {}s ({:+.0})", worst.time_offset_s.round() as i32, worst.score),
+                    Language::En => format!("Drop {}s ({:+.0})", worst.time_offset_s.round() as i32, worst.score),
+                });
             }
         }
 
         let mut chart1_col = column![
             row![
-                text("逐秒表现")
+                text(t(lang, "逐秒表现", "Per-Second"))
                     .size(12)
                     .font(theme::FONT_BOLD)
-                    .color(theme::TEXT_PRIMARY),
+                    .color(p.text_primary),
                 Space::new().width(Length::Fill),
                 mode_row,
             ]
@@ -987,22 +1109,22 @@ impl App {
             chart1_col = chart1_col.push(
                 text(caption_parts.join("  ·  "))
                     .size(10.5)
-                    .color(theme::TEXT_MUTED),
+                    .color(p.text_muted),
             );
         }
 
         let chart1_card = container(chart1_col)
             .padding(11)
             .width(Length::Fill)
-            .style(theme::card_container);
+            .style(theme::card_container(p));
 
-        // Half-Split Card (compact & neutral)
-        let half_split_card = self.view_half_split_card(detail);
+        let half_split_card = self.view_half_split_card(p, lang, detail);
 
-        // Kill Interval Scatter Canvas
         let kill_canvas = canvas::Canvas::new(KillIntervalChart {
             kills: &detail.kills,
             avg_interval_ms: run.avg_kill_interval_ms,
+            palette: p,
+            lang,
             cache: &self.kill_interval_cache,
         })
         .width(Length::Fill)
@@ -1011,10 +1133,10 @@ impl App {
         let chart2_card = container(
             column![
                 row![
-                    text("击杀节奏")
+                    text(t(lang, "击杀节奏", "Kill Pacing"))
                         .size(12)
                         .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(p.text_primary),
                     Space::new().width(Length::Fill),
                     text(format!(
                         "{:.0} / {:.0} / {:.0} ms",
@@ -1023,7 +1145,7 @@ impl App {
                         run.slowest_kill_interval_ms
                     ))
                     .size(10.5)
-                    .color(theme::TEXT_MUTED),
+                    .color(p.text_muted),
                 ]
                 .align_y(Alignment::Center),
                 kill_canvas,
@@ -1032,9 +1154,8 @@ impl App {
         )
         .padding(11)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
-        // Recent Runs quick selector
         let mut recent_runs_col = Column::new().spacing(4).width(Length::Fill);
         for r in self.scenario_runs.iter().take(8) {
             let active = r.id == run.id;
@@ -1044,26 +1165,26 @@ impl App {
                     row![
                         text(short_timestamp(&r.played_at))
                             .size(11)
-                            .color(theme::TEXT_MUTED)
+                            .color(p.text_muted)
                             .width(Length::Fill),
                         text(format!("{:.1}", r.score))
                             .size(11.5)
                             .font(if active { theme::FONT_BOLD } else { theme::FONT_REGULAR })
-                            .color(theme::TEXT_PRIMARY),
+                            .color(p.text_primary),
                         text(pb_mark)
                             .size(10)
                             .font(theme::FONT_BOLD)
-                            .color(theme::SEMANTIC_GREEN),
+                            .color(p.semantic_green),
                         text(format!("{:.1}%", r.accuracy))
                             .size(11)
-                            .color(theme::TEXT_MUTED),
+                            .color(p.text_muted),
                     ]
                     .spacing(6)
                     .align_y(Alignment::Center),
                 )
                 .width(Length::Fill)
                 .padding([5, 8])
-                .style(theme::sidebar_item_button(active))
+                .style(theme::sidebar_item_button(p, active))
                 .on_press(Message::SelectRun(r.id)),
             );
         }
@@ -1071,14 +1192,17 @@ impl App {
         let runs_card = container(
             column![
                 row![
-                    text("最近对局")
+                    text(t(lang, "最近对局", "Recent Runs"))
                         .size(12)
                         .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(p.text_primary),
                     Space::new().width(Length::Fill),
-                    text(format!("近 {} 局", self.scenario_runs.len().min(8)))
-                        .size(10.5)
-                        .color(theme::TEXT_MUTED),
+                    text(match lang {
+                        Language::Zh => format!("近 {} 局", self.scenario_runs.len().min(8)),
+                        Language::En => format!("Last {}", self.scenario_runs.len().min(8)),
+                    })
+                    .size(10.5)
+                    .color(p.text_muted),
                 ]
                 .align_y(Alignment::Center),
                 recent_runs_col,
@@ -1087,7 +1211,7 @@ impl App {
         )
         .padding(11)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         // ── TIER 4: Quiet Metadata Footer ────────────────────────────────
         let sens_part = match run.cm_per_360 {
@@ -1097,7 +1221,7 @@ impl App {
         let meta_footer = container(
             text(format!("{} · {:.0} FPS · {}", sens_part, run.avg_fps, run.resolution))
                 .size(10.5)
-                .color(theme::TEXT_MUTED),
+                .color(p.text_muted),
         )
         .padding([4, 2])
         .width(Length::Fill);
@@ -1116,50 +1240,61 @@ impl App {
         .into()
     }
 
-    fn view_half_split_card<'a>(&self, detail: &'a RunDetail) -> Element<'a, Message> {
+    fn view_half_split_card<'a>(
+        &self,
+        p: UiPalette,
+        lang: Language,
+        detail: &'a RunDetail,
+    ) -> Element<'a, Message> {
         let content: Element<'a, Message> = match &detail.half_split {
             Some(hs) => {
                 let score_c = if hs.score_delta_pct >= 0.0 {
-                    theme::SEMANTIC_GREEN
+                    p.semantic_green
                 } else {
-                    theme::SEMANTIC_RED
+                    p.semantic_red
                 };
                 let acc_c = if hs.accuracy_delta_pp >= 0.0 {
-                    theme::SEMANTIC_GREEN
+                    p.semantic_green
                 } else {
-                    theme::SEMANTIC_RED
+                    p.semantic_red
                 };
                 let kps_c = if hs.kps_delta >= 0.0 {
-                    theme::SEMANTIC_GREEN
+                    p.semantic_green
                 } else {
-                    theme::SEMANTIC_RED
+                    p.semantic_red
                 };
 
                 column![
                     row![
-                        text("前后半程")
+                        text(t(lang, "前后半程", "Half Split"))
                             .size(12)
                             .font(theme::FONT_BOLD)
-                            .color(theme::TEXT_PRIMARY),
+                            .color(p.text_primary),
                         Space::new().width(Length::Fill),
-                        text(&hs.diagnosis).size(10.5).color(theme::TEXT_SECONDARY),
+                        text(&hs.diagnosis).size(10.5).color(p.text_secondary),
                     ]
                     .align_y(Alignment::Center),
                     compact_half_row(
-                        "得分",
+                        p,
+                        lang,
+                        t(lang, "得分", "Score"),
                         format!("{:.0}", hs.first_half_score),
                         format!("{:.0}", hs.second_half_score),
                         format!("{:+.1}%", hs.score_delta_pct),
                         score_c,
                     ),
                     compact_half_row(
-                        "准度",
+                        p,
+                        lang,
+                        t(lang, "准度", "Acc"),
                         format!("{:.1}%", hs.first_half_accuracy),
                         format!("{:.1}%", hs.second_half_accuracy),
                         format!("{:+.1}pp", hs.accuracy_delta_pp),
                         acc_c,
                     ),
                     compact_half_row(
+                        p,
+                        lang,
                         "KPS",
                         format!("{:.2}", hs.first_half_kps),
                         format!("{:.2}", hs.second_half_kps),
@@ -1171,13 +1306,17 @@ impl App {
                 .into()
             }
             None => column![
-                text("前后半程")
+                text(t(lang, "前后半程", "Half Split"))
                     .size(12)
                     .font(theme::FONT_BOLD)
-                    .color(theme::TEXT_PRIMARY),
-                text("需要 .perf 逐秒数据或更多击杀记录进行对比。")
-                    .size(11)
-                    .color(theme::TEXT_MUTED),
+                    .color(p.text_primary),
+                text(t(
+                    lang,
+                    "需要 .perf 逐秒数据或更多击杀记录进行对比。",
+                    "Needs .perf ticks or more kills for half-split comparison."
+                ))
+                .size(11)
+                .color(p.text_muted),
             ]
             .spacing(4)
             .into(),
@@ -1186,23 +1325,17 @@ impl App {
         container(content)
             .padding(11)
             .width(Length::Fill)
-            .style(theme::card_container)
+            .style(theme::card_container(p))
             .into()
     }
 
-    fn view_long_term_trend_tab(&self) -> Element<'_, Message> {
+    fn view_long_term_trend_tab(&self, p: UiPalette, lang: Language) -> Element<'_, Message> {
         let mut range_pills = Row::new().spacing(3);
         for r in TimeRange::ALL {
-            let short = match r {
-                TimeRange::Today => "今日",
-                TimeRange::Days7 => "7天",
-                TimeRange::Days30 => "30天",
-                TimeRange::All => "全部",
-            };
             range_pills = range_pills.push(
-                button(text(short).size(10.5))
+                button(text(time_range_short(*r, lang)).size(10.5))
                     .padding([3, 6])
-                    .style(theme::pill_button(*r == self.time_range))
+                    .style(theme::pill_button(p, *r == self.time_range))
                     .on_press(Message::SetTimeRange(*r)),
             );
         }
@@ -1212,29 +1345,22 @@ impl App {
             ma_pills = ma_pills.push(
                 button(text(format!("MA{}", w)).size(10.5))
                     .padding([3, 5])
-                    .style(theme::pill_button(w == self.ma_window))
+                    .style(theme::pill_button(p, w == self.ma_window))
                     .on_press(Message::SetMaWindow(w)),
             );
         }
 
         let mut metric_pills = Row::new().spacing(4).width(Length::Fill);
         for m in TrendMetric::ALL {
-            let short = match m {
-                TrendMetric::Score => "得分",
-                TrendMetric::Accuracy => "准度",
-                TrendMetric::Kps => "KPS",
-                TrendMetric::AvgTtkMs => "TTK",
-                TrendMetric::OneShotPct => "1-Shot",
-            };
             metric_pills = metric_pills.push(
                 button(
-                    container(text(short).size(11))
+                    container(text(metric_short(*m, lang)).size(11))
                         .width(Length::Fill)
                         .center_x(Length::Fill),
                 )
                 .width(Length::FillPortion(1))
                 .padding([4, 4])
-                .style(theme::pill_button(*m == self.trend_metric))
+                .style(theme::pill_button(p, *m == self.trend_metric))
                 .on_press(Message::SetTrendMetric(*m)),
             );
         }
@@ -1249,9 +1375,8 @@ impl App {
         )
         .padding(9)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
-        // Clean monochrome summary strip (2x2)
         let a = &self.trend_analysis;
         let unit = self.trend_metric.unit();
         let recent_str = match a.recent_delta_pct {
@@ -1259,39 +1384,48 @@ impl App {
             None => "—".to_string(),
         };
         let recent_color = match a.recent_delta_pct {
-            Some(d) if (d >= 0.0) == self.trend_metric.higher_is_better() => theme::SEMANTIC_GREEN,
-            Some(_) => theme::SEMANTIC_RED,
-            None => theme::TEXT_MUTED,
+            Some(d) if (d >= 0.0) == self.trend_metric.higher_is_better() => p.semantic_green,
+            Some(_) => p.semantic_red,
+            None => p.text_muted,
         };
 
         let sum_card = container(
             column![
                 row![
                     secondary_metric_cell(
-                        "区间均值",
+                        p,
+                        t(lang, "区间均值", "Mean"),
                         format!("{:.1}{}", a.mean, unit),
-                        format!("{} 局 · σ {:.1}", a.points.len(), a.std_dev),
+                        match lang {
+                            Language::Zh => format!("{} 局 · σ {:.1}", a.points.len(), a.std_dev),
+                            Language::En => format!("{} runs · σ {:.1}", a.points.len(), a.std_dev),
+                        },
                     ),
                     secondary_metric_cell(
-                        "区间最佳 PB",
+                        p,
+                        t(lang, "区间最佳 PB", "Best PB"),
                         format!("{:.1}{}", a.pb_value, unit),
-                        format!("最低 {:.1}{}", a.min_val, unit),
+                        match lang {
+                            Language::Zh => format!("最低 {:.1}{}", a.min_val, unit),
+                            Language::En => format!("Min {:.1}{}", a.min_val, unit),
+                        },
                     ),
                 ]
                 .spacing(8),
                 row![
                     secondary_metric_cell(
-                        "稳定性 CV",
+                        p,
+                        t(lang, "稳定性 CV", "Stability CV"),
                         format!("{:.1}%", a.cv_pct),
-                        "越低越稳定".to_string(),
+                        t(lang, "越低越稳定", "Lower is steadier").to_string(),
                     ),
                     column![
-                        text("近期趋势").size(10).color(theme::TEXT_MUTED),
+                        text(t(lang, "近期趋势", "Recent Trend")).size(10).color(p.text_muted),
                         text(recent_str)
                             .size(15)
                             .font(theme::FONT_BOLD)
                             .color(recent_color),
-                        text("后段 vs 前段").size(10).color(theme::TEXT_MUTED),
+                        text(t(lang, "后段 vs 前段", "Late vs Early")).size(10).color(p.text_muted),
                     ]
                     .spacing(2)
                     .width(Length::FillPortion(1)),
@@ -1302,12 +1436,14 @@ impl App {
         )
         .padding([10, 12])
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         let trend_canvas = canvas::Canvas::new(TrendChart {
             analysis: &self.trend_analysis,
             metric: self.trend_metric,
             ma_window: self.ma_window,
+            palette: p,
+            lang,
             cache: &self.trend_cache,
         })
         .width(Length::Fill)
@@ -1316,15 +1452,14 @@ impl App {
         let trend_card = container(trend_canvas)
             .padding(10)
             .width(Length::Fill)
-            .style(theme::card_container);
+            .style(theme::card_container(p));
 
-        // Config Group Comparison (clean neutral rows)
         let mut group_col = Column::new().spacing(5).width(Length::Fill);
         if self.config_groups.is_empty() {
             group_col = group_col.push(
-                text("暂无不同灵敏度 / FOV 分组数据")
+                text(t(lang, "暂无不同灵敏度 / FOV 分组数据", "No sensitivity / FOV groups yet"))
                     .size(11.5)
-                    .color(theme::TEXT_MUTED),
+                    .color(p.text_muted),
             );
         } else {
             for g in &self.config_groups {
@@ -1336,28 +1471,37 @@ impl App {
                     text(format!("{} · FOV {:.0}", cm_label, g.fov))
                         .size(11.5)
                         .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY)
+                        .color(p.text_primary)
                         .width(Length::Fill),
-                    text(format!("{}局", g.run_count))
-                        .size(10.5)
-                        .color(theme::TEXT_MUTED),
+                    text(match lang {
+                        Language::Zh => format!("{}局", g.run_count),
+                        Language::En => format!("{}r", g.run_count),
+                    })
+                    .size(10.5)
+                    .color(p.text_muted),
                 ]
                 .align_y(Alignment::Center);
 
                 let metrics = row![
-                    text(format!("均 {:.1}", g.avg_score))
-                        .size(11)
-                        .color(theme::TEXT_SECONDARY),
+                    text(match lang {
+                        Language::Zh => format!("均 {:.1}", g.avg_score),
+                        Language::En => format!("Avg {:.1}", g.avg_score),
+                    })
+                    .size(11)
+                    .color(p.text_secondary),
                     text(format!("PB {:.1}", g.pb_score))
                         .size(11)
-                        .color(theme::TEXT_PRIMARY),
-                    text(format!("准 {:.1}%", g.avg_accuracy))
-                        .size(11)
-                        .color(theme::TEXT_MUTED),
+                        .color(p.text_primary),
+                    text(match lang {
+                        Language::Zh => format!("准 {:.1}%", g.avg_accuracy),
+                        Language::En => format!("Acc {:.1}%", g.avg_accuracy),
+                    })
+                    .size(11)
+                    .color(p.text_muted),
                     Space::new().width(Length::Fill),
                     text(format!("1S {:.0}%", g.avg_one_shot_pct))
                         .size(11)
-                        .color(theme::TEXT_MUTED),
+                        .color(p.text_muted),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center);
@@ -1366,24 +1510,24 @@ impl App {
                     container(column![header, metrics].spacing(3))
                         .padding([6, 8])
                         .width(Length::Fill)
-                        .style(theme::subtle_row_container),
+                        .style(theme::subtle_row_container(p)),
                 );
             }
         }
 
         let group_card = container(
             column![
-                text("配置分组对比")
+                text(t(lang, "配置分组对比", "Config Groups"))
                     .size(12)
                     .font(theme::FONT_BOLD)
-                    .color(theme::TEXT_PRIMARY),
+                    .color(p.text_primary),
                 group_col,
             ]
             .spacing(7),
         )
         .padding(11)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         column![controls, sum_card, trend_card, group_card]
             .spacing(10)
@@ -1391,7 +1535,7 @@ impl App {
             .into()
     }
 
-    fn view_overview_tab(&self) -> Element<'_, Message> {
+    fn view_overview_tab(&self, p: UiPalette, lang: Language) -> Element<'_, Message> {
         let ov = &self.overview_stats;
         let today_mins = ov.today_duration_s / 60.0;
 
@@ -1399,36 +1543,57 @@ impl App {
             column![
                 row![
                     secondary_metric_cell(
-                        "今日局数",
-                        format!("{} 局", ov.today_runs),
-                        "当日完成对局".to_string(),
+                        p,
+                        t(lang, "今日局数", "Today Runs"),
+                        match lang {
+                            Language::Zh => format!("{} 局", ov.today_runs),
+                            Language::En => format!("{}", ov.today_runs),
+                        },
+                        t(lang, "当日完成对局", "Completed today").to_string(),
                     ),
                     secondary_metric_cell(
-                        "今日时长",
-                        format!("{:.1} 分", today_mins),
-                        format!("{:.0}s 射击", ov.today_duration_s),
+                        p,
+                        t(lang, "今日时长", "Today Time"),
+                        match lang {
+                            Language::Zh => format!("{:.1} 分", today_mins),
+                            Language::En => format!("{:.1} min", today_mins),
+                        },
+                        match lang {
+                            Language::Zh => format!("{:.0}s 射击", ov.today_duration_s),
+                            Language::En => format!("{:.0}s active", ov.today_duration_s),
+                        },
                     ),
                 ]
                 .spacing(8),
                 row![
                     column![
-                        text("今日新 PB").size(10).color(theme::TEXT_MUTED),
-                        text(format!("{} 次", ov.today_new_pbs))
-                            .size(15)
-                            .font(theme::FONT_BOLD)
-                            .color(if ov.today_new_pbs > 0 {
-                                theme::SEMANTIC_GREEN
-                            } else {
-                                theme::TEXT_PRIMARY
-                            }),
-                        text("单日突破").size(10).color(theme::TEXT_MUTED),
+                        text(t(lang, "今日新 PB", "Today PBs")).size(10).color(p.text_muted),
+                        text(match lang {
+                            Language::Zh => format!("{} 次", ov.today_new_pbs),
+                            Language::En => format!("{}", ov.today_new_pbs),
+                        })
+                        .size(15)
+                        .font(theme::FONT_BOLD)
+                        .color(if ov.today_new_pbs > 0 {
+                            p.semantic_green
+                        } else {
+                            p.text_primary
+                        }),
+                        text(t(lang, "单日突破", "Personal bests")).size(10).color(p.text_muted),
                     ]
                     .spacing(2)
                     .width(Length::FillPortion(1)),
                     secondary_metric_cell(
-                        "累计归档",
-                        format!("{} 局", ov.total_runs),
-                        format!("{} 个项目", ov.total_scenarios),
+                        p,
+                        t(lang, "累计归档", "Total Archived"),
+                        match lang {
+                            Language::Zh => format!("{} 局", ov.total_runs),
+                            Language::En => format!("{} runs", ov.total_runs),
+                        },
+                        match lang {
+                            Language::Zh => format!("{} 个项目", ov.total_scenarios),
+                            Language::En => format!("{} scenarios", ov.total_scenarios),
+                        },
                     ),
                 ]
                 .spacing(8),
@@ -1437,10 +1602,12 @@ impl App {
         )
         .padding([10, 12])
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         let heatmap_canvas = canvas::Canvas::new(HeatmapChart {
             cells: &ov.heatmap,
+            palette: p,
+            lang,
             cache: &self.heatmap_cache,
         })
         .width(Length::Fill)
@@ -1449,12 +1616,12 @@ impl App {
         let heatmap_card = container(
             column![
                 row![
-                    text("训练日历 (近18周)")
+                    text(t(lang, "训练日历 (近18周)", "Activity (18w)"))
                         .size(12)
                         .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(p.text_primary),
                     Space::new().width(Length::Fill),
-                    text("悬停看明细").size(10).color(theme::TEXT_MUTED),
+                    text(t(lang, "悬停看明细", "Hover for details")).size(10).color(p.text_muted),
                 ]
                 .align_y(Alignment::Center),
                 heatmap_canvas,
@@ -1463,11 +1630,15 @@ impl App {
         )
         .padding(11)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         let mut pb_list = Column::new().spacing(4).width(Length::Fill);
         if ov.recent_pbs.is_empty() {
-            pb_list = pb_list.push(text("暂无 PB 记录").size(11.5).color(theme::TEXT_MUTED));
+            pb_list = pb_list.push(
+                text(t(lang, "暂无 PB 记录", "No PBs yet"))
+                    .size(11.5)
+                    .color(p.text_muted),
+            );
         } else {
             for pb in ov.recent_pbs.iter().take(8) {
                 pb_list = pb_list.push(
@@ -1477,23 +1648,23 @@ impl App {
                                 text(&pb.scenario)
                                     .size(11.5)
                                     .font(theme::FONT_BOLD)
-                                    .color(theme::TEXT_PRIMARY)
+                                    .color(p.text_primary)
                                     .width(Length::Fill),
                                 text(format!("{:.1}", pb.score))
                                     .size(12)
                                     .font(theme::FONT_BOLD)
-                                    .color(theme::SEMANTIC_GREEN),
+                                    .color(p.semantic_green),
                             ]
                             .spacing(5)
                             .align_y(Alignment::Center),
                             row![
                                 text(format!("Acc {:.1}% · KPS {:.2}", pb.accuracy, pb.avg_kps))
                                     .size(10.5)
-                                    .color(theme::TEXT_MUTED),
+                                    .color(p.text_muted),
                                 Space::new().width(Length::Fill),
                                 text(short_timestamp(&pb.played_at))
                                     .size(10.5)
-                                    .color(theme::TEXT_MUTED),
+                                    .color(p.text_muted),
                             ]
                             .align_y(Alignment::Center),
                         ]
@@ -1501,7 +1672,7 @@ impl App {
                     )
                     .width(Length::Fill)
                     .padding([6, 8])
-                    .style(theme::sidebar_item_button(false))
+                    .style(theme::sidebar_item_button(p, false))
                     .on_press(Message::JumpToRun {
                         scenario: pb.scenario.clone(),
                         run_id: pb.id,
@@ -1512,45 +1683,52 @@ impl App {
 
         let pb_card = container(
             column![
-                text("近期突破 PB")
+                text(t(lang, "近期突破 PB", "Recent PBs"))
                     .size(12)
                     .font(theme::FONT_BOLD)
-                    .color(theme::TEXT_PRIMARY),
+                    .color(p.text_primary),
                 pb_list,
             ]
             .spacing(6),
         )
         .padding(11)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
-        let selected_label = self.selected_scenario.as_deref().unwrap_or("未选择项目");
+        let selected_label = self
+            .selected_scenario
+            .as_deref()
+            .unwrap_or_else(|| t(lang, "未选择项目", "None"));
         let export_card = container(
             column![
                 row![
-                    text("导出 CSV")
+                    text(t(lang, "导出 CSV", "Export CSV"))
                         .size(12)
                         .font(theme::FONT_BOLD)
-                        .color(theme::TEXT_PRIMARY),
+                        .color(p.text_primary),
                     Space::new().width(Length::Fill),
-                    text(selected_label).size(10.5).color(theme::TEXT_MUTED),
+                    text(selected_label).size(10.5).color(p.text_muted),
                 ]
                 .align_y(Alignment::Center),
                 button(
-                    container(text("导出当前项目全部历史 CSV").size(11.5).font(theme::FONT_BOLD))
-                        .width(Length::Fill)
-                        .center_x(Length::Fill),
+                    container(
+                        text(t(lang, "导出当前项目全部历史 CSV", "Export Selected Scenario CSV"))
+                            .size(11.5)
+                            .font(theme::FONT_BOLD),
+                    )
+                    .width(Length::Fill)
+                    .center_x(Length::Fill),
                 )
                 .width(Length::Fill)
                 .padding([7, 10])
-                .style(theme::primary_button)
+                .style(theme::primary_button(p))
                 .on_press(Message::ExportCurrentScenarioCsv),
             ]
             .spacing(7),
         )
         .padding(11)
         .width(Length::Fill)
-        .style(theme::card_container);
+        .style(theme::card_container(p));
 
         column![summary_card, heatmap_card, pb_card, export_card]
             .spacing(10)
@@ -1560,17 +1738,18 @@ impl App {
 }
 
 fn secondary_metric_cell<'a>(
+    p: UiPalette,
     label: &'a str,
     value: String,
     subtitle: String,
 ) -> Element<'a, Message> {
     column![
-        text(label).size(10).color(theme::TEXT_MUTED),
+        text(label).size(10).color(p.text_muted),
         text(value)
             .size(15)
             .font(theme::FONT_BOLD)
-            .color(theme::TEXT_PRIMARY),
-        text(subtitle).size(10).color(theme::TEXT_MUTED),
+            .color(p.text_primary),
+        text(subtitle).size(10).color(p.text_muted),
     ]
     .spacing(2)
     .width(Length::FillPortion(1))
@@ -1578,26 +1757,32 @@ fn secondary_metric_cell<'a>(
 }
 
 fn compact_half_row<'a>(
+    p: UiPalette,
+    lang: Language,
     label: &'a str,
     first: String,
     second: String,
     delta: String,
     delta_color: Color,
 ) -> Element<'a, Message> {
+    let (h1_prefix, h2_prefix) = match lang {
+        Language::Zh => ("前", "后"),
+        Language::En => ("1st", "2nd"),
+    };
     container(
         row![
             text(label)
                 .size(11)
-                .color(theme::TEXT_MUTED)
-                .width(Length::Fixed(34.0)),
-            text(format!("前 {}", first))
+                .color(p.text_muted)
+                .width(Length::Fixed(38.0)),
+            text(format!("{} {}", h1_prefix, first))
                 .size(11)
-                .color(theme::TEXT_SECONDARY)
+                .color(p.text_secondary)
                 .width(Length::Fill),
-            text(format!("后 {}", second))
+            text(format!("{} {}", h2_prefix, second))
                 .size(11)
                 .font(theme::FONT_BOLD)
-                .color(theme::TEXT_PRIMARY)
+                .color(p.text_primary)
                 .width(Length::Fill),
             text(delta)
                 .size(11)
@@ -1609,7 +1794,7 @@ fn compact_half_row<'a>(
     )
     .padding([5, 8])
     .width(Length::Fill)
-    .style(theme::subtle_row_container)
+    .style(theme::subtle_row_container(p))
     .into()
 }
 

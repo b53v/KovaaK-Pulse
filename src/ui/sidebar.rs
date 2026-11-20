@@ -1,8 +1,9 @@
 use iced::widget::{Column, Row, Space, button, column, container, row, scrollable, text, text_input};
 use iced::{Alignment, Element, Length};
 
-use crate::model::ScenarioSummary;
-use crate::ui::theme;
+use crate::model::{Language, ScenarioSummary};
+use crate::ui::i18n::{sort_label, t};
+use crate::ui::theme::{self, UiPalette};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ScenarioSort {
@@ -18,19 +19,13 @@ impl ScenarioSort {
         ScenarioSort::RunCount,
         ScenarioSort::Name,
     ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ScenarioSort::Recent => "最近",
-            ScenarioSort::RunCount => "局数",
-            ScenarioSort::Name => "名称",
-        }
-    }
 }
 
 /// Clean neutral scenario picker bar + collapsible dropdown list.
 #[allow(clippy::too_many_arguments)]
 pub fn view_scenario_picker<'a, Message: Clone + 'a>(
+    p: UiPalette,
+    lang: Language,
     scenarios: &'a [ScenarioSummary],
     selected_scenario: Option<&'a str>,
     is_open: bool,
@@ -51,20 +46,26 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     let arrow = if is_open { "▴" } else { "▾" };
     let title_str = active_summary
         .map(|s| s.scenario.as_str())
-        .unwrap_or("选择训练项目");
+        .unwrap_or_else(|| t(lang, "选择训练项目", "Select Scenario"));
     let meta_str = match active_summary {
-        Some(s) => format!("PB {:.0} · {}局", s.pb_score, s.run_count),
-        None => format!("{}个项目", scenarios.len()),
+        Some(s) => match lang {
+            Language::Zh => format!("PB {:.0} · {}局", s.pb_score, s.run_count),
+            Language::En => format!("PB {:.0} · {} runs", s.pb_score, s.run_count),
+        },
+        None => match lang {
+            Language::Zh => format!("{}个项目", scenarios.len()),
+            Language::En => format!("{} scenarios", scenarios.len()),
+        },
     };
 
     let mut header_row = row![
-        text(arrow).size(11).color(theme::TEXT_MUTED),
+        text(arrow).size(11).color(p.text_muted),
         text(title_str)
             .size(12.5)
             .font(theme::FONT_BOLD)
-            .color(theme::TEXT_PRIMARY)
+            .color(p.text_primary)
             .width(Length::Fill),
-        text(meta_str).size(11).color(theme::TEXT_MUTED),
+        text(meta_str).size(11).color(p.text_muted),
     ]
     .spacing(6)
     .align_y(Alignment::Center);
@@ -72,14 +73,14 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     if let Some(active) = active_summary {
         let star_char = if active.is_favorite { "★" } else { "☆" };
         let star_color = if active.is_favorite {
-            theme::SEMANTIC_AMBER
+            p.semantic_amber
         } else {
-            theme::TEXT_MUTED
+            p.text_muted
         };
         header_row = header_row.push(
             button(text(star_char).size(12).color(star_color))
                 .padding([0, 3])
-                .style(theme::ghost_button)
+                .style(theme::ghost_button(p))
                 .on_press(on_toggle_star(active.scenario.clone())),
         );
     }
@@ -87,14 +88,14 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     let picker_bar = button(header_row)
         .width(Length::Fill)
         .padding([6, 9])
-        .style(theme::sidebar_item_button(is_open))
+        .style(theme::sidebar_item_button(p, is_open))
         .on_press(on_toggle_open);
 
     if !is_open {
         return container(picker_bar)
             .padding([6, 10])
             .width(Length::Fill)
-            .style(theme::topbar_container)
+            .style(theme::topbar_container(p))
             .into();
     }
 
@@ -120,25 +121,28 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
         })
     });
 
-    let search_box = text_input("搜索项目名称...", search_query)
+    let search_box = text_input(t(lang, "搜索项目名称...", "Search scenarios..."), search_query)
         .on_input(on_search)
         .padding([5, 8])
         .size(12)
-        .style(theme::search_input_style);
+        .style(theme::search_input_style(p));
 
-    let fav_btn = button(
-        text(if favorites_only { "★ 仅收藏" } else { "☆ 收藏" }).size(11),
-    )
-    .padding([3, 7])
-    .style(theme::pill_button(favorites_only))
-    .on_press(on_toggle_fav_filter);
+    let fav_label = if favorites_only {
+        t(lang, "★ 仅收藏", "★ Favs")
+    } else {
+        t(lang, "☆ 收藏", "☆ Favs")
+    };
+    let fav_btn = button(text(fav_label).size(11))
+        .padding([3, 7])
+        .style(theme::pill_button(p, favorites_only))
+        .on_press(on_toggle_fav_filter);
 
     let mut sort_row = Row::new().spacing(4).align_y(Alignment::Center);
     for s in ScenarioSort::ALL {
         sort_row = sort_row.push(
-            button(text(s.label()).size(11))
+            button(text(sort_label(*s, lang)).size(11))
                 .padding([3, 7])
-                .style(theme::pill_button(*s == sort_by))
+                .style(theme::pill_button(p, *s == sort_by))
                 .on_press(on_sort(*s)),
         );
     }
@@ -152,12 +156,12 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
         list_col = list_col.push(
             container(
                 text(if scenarios.is_empty() {
-                    "暂无本地记录，完成一局后将自动入库"
+                    t(lang, "暂无本地记录，完成一局后将自动入库", "No local runs yet. Finish a run to ingest.")
                 } else {
-                    "无匹配项目"
+                    t(lang, "无匹配项目", "No matching scenarios")
                 })
                 .size(11.5)
-                .color(theme::TEXT_MUTED),
+                .color(p.text_muted),
             )
             .padding(10)
             .width(Length::Fill),
@@ -167,39 +171,43 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
             let is_selected = selected_scenario == Some(item.scenario.as_str());
             let star_label = if item.is_favorite { "★" } else { "☆" };
             let star_color = if item.is_favorite {
-                theme::SEMANTIC_AMBER
+                p.semantic_amber
             } else {
-                theme::TEXT_MUTED
+                p.text_muted
             };
 
             let star_btn = button(text(star_label).size(11.5).color(star_color))
                 .padding([0, 3])
-                .style(theme::ghost_button)
+                .style(theme::ghost_button(p))
                 .on_press(on_toggle_star(item.scenario.clone()));
 
             let top_row = row![
                 text(&item.scenario)
                     .size(12)
                     .font(if is_selected { theme::FONT_BOLD } else { theme::FONT_REGULAR })
-                    .color(theme::TEXT_PRIMARY)
+                    .color(p.text_primary)
                     .width(Length::Fill),
                 star_btn,
             ]
             .align_y(Alignment::Center)
             .spacing(4);
 
+            let latest_txt = match lang {
+                Language::Zh => format!("最近 {:.1}", item.latest_score),
+                Language::En => format!("Last {:.1}", item.latest_score),
+            };
+            let count_txt = match lang {
+                Language::Zh => format!("{}局", item.run_count),
+                Language::En => format!("{}r", item.run_count),
+            };
             let sub_row = row![
                 text(format!("PB {:.1}", item.pb_score))
                     .size(10.5)
-                    .color(theme::TEXT_SECONDARY),
-                text("·").size(10.5).color(theme::TEXT_MUTED),
-                text(format!("最近 {:.1}", item.latest_score))
-                    .size(10.5)
-                    .color(theme::TEXT_MUTED),
+                    .color(p.text_secondary),
+                text("·").size(10.5).color(p.text_muted),
+                text(latest_txt).size(10.5).color(p.text_muted),
                 Space::new().width(Length::Fill),
-                text(format!("{}局", item.run_count))
-                    .size(10.5)
-                    .color(theme::TEXT_MUTED),
+                text(count_txt).size(10.5).color(p.text_muted),
             ]
             .spacing(4)
             .align_y(Alignment::Center);
@@ -207,7 +215,7 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
             let item_btn = button(column![top_row, sub_row].spacing(3).width(Length::Fill))
                 .width(Length::Fill)
                 .padding([6, 8])
-                .style(theme::sidebar_item_button(is_selected))
+                .style(theme::sidebar_item_button(p, is_selected))
                 .on_press(on_select(item.scenario.clone()));
 
             list_col = list_col.push(item_btn);
@@ -218,7 +226,7 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
         .direction(scrollable::Direction::Vertical(
             scrollable::Scrollbar::new().width(4).scroller_width(4),
         ))
-        .style(theme::subtle_scrollbar)
+        .style(theme::subtle_scrollbar(p))
         .height(Length::Fixed(180.0));
 
     let dropdown = container(
@@ -228,11 +236,11 @@ pub fn view_scenario_picker<'a, Message: Clone + 'a>(
     )
     .padding(8)
     .width(Length::Fill)
-    .style(theme::card_container);
+    .style(theme::card_container(p));
 
     container(column![picker_bar, dropdown].spacing(6).width(Length::Fill))
         .padding([6, 10])
         .width(Length::Fill)
-        .style(theme::topbar_container)
+        .style(theme::topbar_container(p))
         .into()
 }

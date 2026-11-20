@@ -1,14 +1,17 @@
 use iced::widget::canvas::{self, Action, Cache, Event, Frame, Geometry, LineDash, Path, Stroke, Style, Text};
 use iced::widget::text;
-use iced::{Point, Rectangle, Renderer, Size, Theme, alignment, mouse};
+use iced::{Color, Point, Rectangle, Renderer, Size, Theme, alignment, mouse};
 
-use crate::model::KillEvent;
+use crate::model::{KillEvent, Language};
 use crate::ui::charts::draw_tooltip;
-use crate::ui::theme;
+use crate::ui::i18n::t;
+use crate::ui::theme::{self, UiPalette};
 
 pub struct KillIntervalChart<'a> {
     pub kills: &'a [KillEvent],
     pub avg_interval_ms: f64,
+    pub palette: UiPalette,
+    pub lang: Language,
     pub cache: &'a Cache,
 }
 
@@ -113,7 +116,11 @@ impl<'a> KillIntervalChart<'a> {
         }
         let pos = cursor.position_in(bounds)?;
         let size = bounds.size();
-        if pos.x < PAD_LEFT - 8.0 || pos.x > size.width - PAD_RIGHT + 8.0 || pos.y < PAD_TOP - 8.0 || pos.y > size.height - PAD_BOTTOM + 8.0 {
+        if pos.x < PAD_LEFT - 8.0
+            || pos.x > size.width - PAD_RIGHT + 8.0
+            || pos.y < PAD_TOP - 8.0
+            || pos.y > size.height - PAD_BOTTOM + 8.0
+        {
             return None;
         }
 
@@ -133,15 +140,21 @@ impl<'a> KillIntervalChart<'a> {
     }
 
     fn draw_base(&self, frame: &mut Frame, size: Size) {
+        let p = self.palette;
         let plot_w = (size.width - PAD_LEFT - PAD_RIGHT).max(1.0);
         let plot_h = (size.height - PAD_TOP - PAD_BOTTOM).max(1.0);
 
         if self.kills.is_empty() {
             frame.fill_text(Text {
-                content: "当前对局无逐次击杀明细（0 杀或无逐杀记录）".to_string(),
+                content: t(
+                    self.lang,
+                    "当前对局无逐次击杀明细",
+                    "No per-kill events in this run",
+                )
+                .to_string(),
                 position: Point::new(size.width * 0.5, size.height * 0.5),
-                color: theme::TEXT_MUTED,
-                size: 13.0.into(),
+                color: p.text_muted,
+                size: 11.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
                 align_y: alignment::Vertical::Center,
@@ -158,14 +171,14 @@ impl<'a> KillIntervalChart<'a> {
             let line = Path::line(Point::new(PAD_LEFT, y), Point::new(PAD_LEFT + plot_w, y));
             frame.stroke(
                 &line,
-                Stroke::default().with_color(theme::GRID_LINE).with_width(1.0),
+                Stroke::default().with_color(p.grid_line).with_width(1.0),
             );
             let val = max_y * (1.0 - frac as f64);
             frame.fill_text(Text {
                 content: format!("{:.0}ms", val),
                 position: Point::new(PAD_LEFT - 6.0, y),
-                color: theme::TEXT_MUTED,
-                size: 10.5.into(),
+                color: p.text_muted,
+                size: 10.0.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Right,
                 align_y: alignment::Vertical::Center,
@@ -173,7 +186,6 @@ impl<'a> KillIntervalChart<'a> {
             });
         }
 
-        // Average interval reference line
         if self.avg_interval_ms > 0.0 {
             let norm = (self.avg_interval_ms / max_y).clamp(0.0, 1.0) as f32;
             let avg_y = PAD_TOP + plot_h * (1.0 - norm);
@@ -184,7 +196,7 @@ impl<'a> KillIntervalChart<'a> {
             frame.stroke(
                 &avg_line,
                 Stroke {
-                    style: Style::Solid(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.30)),
+                    style: Style::Solid(Color { a: 0.35, ..p.text_secondary }),
                     width: 1.0,
                     line_dash: LineDash {
                         segments: &[4.0, 4.0],
@@ -195,7 +207,6 @@ impl<'a> KillIntervalChart<'a> {
             );
         }
 
-        // Subtle connecting line
         let connect = Path::new(|b| {
             for (i, k) in self.kills.iter().enumerate() {
                 let pt = self.point_for(size, i, k);
@@ -208,25 +219,21 @@ impl<'a> KillIntervalChart<'a> {
         });
         frame.stroke(
             &connect,
-            Stroke::default()
-                .with_color(iced::Color::from_rgba(1.0, 1.0, 1.0, 0.08))
-                .with_width(1.0),
+            Stroke::default().with_color(p.grid_line).with_width(1.0),
         );
 
-        // Scatter dots: quiet slate for 1-shot kills, muted red ONLY for multi-shot kills
         for (i, kill) in self.kills.iter().enumerate() {
             let pt = self.point_for(size, i, kill);
             let color = if kill.is_one_shot {
-                iced::Color { a: 0.60, ..theme::TEXT_SECONDARY }
+                Color { a: 0.60, ..p.text_secondary }
             } else {
-                theme::SEMANTIC_RED
+                p.semantic_red
             };
             let radius = if kill.is_one_shot { 2.8 } else { 4.0 };
             let dot = Path::circle(pt, radius);
             frame.fill(&dot, color);
         }
 
-        // X-axis labels
         let n = self.kills.len();
         let step = (n / 5).max(1);
         for i in (0..n).step_by(step) {
@@ -234,7 +241,7 @@ impl<'a> KillIntervalChart<'a> {
             frame.fill_text(Text {
                 content: format!("#{}", self.kills[i].kill_index),
                 position: Point::new(pt.x, PAD_TOP + plot_h + 6.0),
-                color: theme::TEXT_MUTED,
+                color: p.text_muted,
                 size: 9.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
@@ -243,14 +250,14 @@ impl<'a> KillIntervalChart<'a> {
             });
         }
 
-        // Legend
+        let legend = match self.lang {
+            Language::Zh => format!("● 1-Shot  ● 补射  -- 均 {:.0}ms", self.avg_interval_ms),
+            Language::En => format!("● 1-Shot  ● Multi  -- Avg {:.0}ms", self.avg_interval_ms),
+        };
         frame.fill_text(Text {
-            content: format!(
-                "● 1-Shot  ● 补射  -- 均 {:.0}ms",
-                self.avg_interval_ms
-            ),
+            content: legend,
             position: Point::new(PAD_LEFT, 2.0),
-            color: theme::TEXT_SECONDARY,
+            color: p.text_secondary,
             size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
@@ -260,39 +267,52 @@ impl<'a> KillIntervalChart<'a> {
     }
 
     fn draw_hover(&self, frame: &mut Frame, size: Size, idx: usize, kill: &KillEvent) {
+        let p = self.palette;
         let pt = self.point_for(size, idx, kill);
         let color = if kill.is_one_shot {
-            theme::TEXT_PRIMARY
+            p.text_primary
         } else {
-            theme::SEMANTIC_RED
+            p.semantic_red
         };
 
         let ring = Path::circle(pt, 6.0);
         frame.stroke(&ring, Stroke::default().with_color(color).with_width(1.8));
 
-        let interval_str = match kill.interval_ms {
-            Some(ms) => format!("{:.0} ms", ms),
-            None => "首杀".to_string(),
-        };
-        let shot_label = if kill.is_one_shot {
-            "一枪秒杀 (1-Shot)"
-        } else {
-            "多枪补射"
+        let (title, lines) = match self.lang {
+            Language::Zh => {
+                let interval_str = match kill.interval_ms {
+                    Some(ms) => format!("{:.0} ms", ms),
+                    None => "首杀".to_string(),
+                };
+                let shot_label = if kill.is_one_shot { "一枪秒杀" } else { "多枪补射" };
+                (
+                    format!("第 #{} 杀 ({})", kill.kill_index, kill.timestamp),
+                    vec![
+                        (shot_label.to_string(), color),
+                        (format!("间隔: {}  TTK: {:.0}ms", interval_str, kill.ttk_s * 1000.0), p.text_primary),
+                        (format!("开火/命中: {}/{}  准度: {:.1}%", kill.shots, kill.hits, kill.accuracy), p.text_secondary),
+                        (format!("过射: {}  目标: {}", kill.overshots, kill.bot), p.text_muted),
+                    ],
+                )
+            }
+            Language::En => {
+                let interval_str = match kill.interval_ms {
+                    Some(ms) => format!("{:.0} ms", ms),
+                    None => "First".to_string(),
+                };
+                let shot_label = if kill.is_one_shot { "1-Shot Kill" } else { "Multi-Shot" };
+                (
+                    format!("Kill #{} ({})", kill.kill_index, kill.timestamp),
+                    vec![
+                        (shot_label.to_string(), color),
+                        (format!("Interval: {}  TTK: {:.0}ms", interval_str, kill.ttk_s * 1000.0), p.text_primary),
+                        (format!("Shots/Hits: {}/{}  Acc: {:.1}%", kill.shots, kill.hits, kill.accuracy), p.text_secondary),
+                        (format!("Overshots: {}  Bot: {}", kill.overshots, kill.bot), p.text_muted),
+                    ],
+                )
+            }
         };
 
-        let lines = vec![
-            (shot_label.to_string(), color),
-            (format!("击杀间隔: {}   TTK: {:.0} ms", interval_str, kill.ttk_s * 1000.0), theme::TEXT_PRIMARY),
-            (format!("开火/命中: {}/{}   准度: {:.1}%", kill.shots, kill.hits, kill.accuracy), theme::TEXT_SECONDARY),
-            (format!("过射: {}   目标: {}", kill.overshots, kill.bot), theme::TEXT_MUTED),
-        ];
-
-        draw_tooltip(
-            frame,
-            size,
-            pt,
-            &format!("第 #{} 杀  ({})", kill.kill_index, kill.timestamp),
-            &lines,
-        );
+        draw_tooltip(frame, p, size, pt, &title, &lines);
     }
 }

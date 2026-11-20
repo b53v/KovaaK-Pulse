@@ -223,6 +223,22 @@ pub struct ScenarioSummary {
     pub is_favorite: bool,
 }
 
+/// UI display language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum Language {
+    #[default]
+    Zh,
+    En,
+}
+
+/// UI color theme mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum ThemeMode {
+    #[default]
+    Dark,
+    Light,
+}
+
 /// Metric selectable on the Long-Term Trend chart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub enum TrendMetric {
@@ -250,6 +266,21 @@ impl TrendMetric {
             TrendMetric::Kps => "击杀速率 KPS",
             TrendMetric::AvgTtkMs => "平均 TTK (ms)",
             TrendMetric::OneShotPct => "一枪毙命率 %",
+        }
+    }
+
+    pub fn label_i18n(self, lang: Language) -> &'static str {
+        match (lang, self) {
+            (Language::Zh, TrendMetric::Score) => "得分",
+            (Language::Zh, TrendMetric::Accuracy) => "准度",
+            (Language::Zh, TrendMetric::Kps) => "KPS",
+            (Language::Zh, TrendMetric::AvgTtkMs) => "TTK",
+            (Language::Zh, TrendMetric::OneShotPct) => "一枪率",
+            (Language::En, TrendMetric::Score) => "Score",
+            (Language::En, TrendMetric::Accuracy) => "Acc %",
+            (Language::En, TrendMetric::Kps) => "KPS",
+            (Language::En, TrendMetric::AvgTtkMs) => "TTK",
+            (Language::En, TrendMetric::OneShotPct) => "1-Shot",
         }
     }
 
@@ -302,6 +333,19 @@ impl TimeRange {
             TimeRange::Days7 => "近 7 天",
             TimeRange::Days30 => "近 30 天",
             TimeRange::All => "全部",
+        }
+    }
+
+    pub fn label_i18n(self, lang: Language) -> &'static str {
+        match (lang, self) {
+            (Language::Zh, TimeRange::Today) => "今日",
+            (Language::Zh, TimeRange::Days7) => "7天",
+            (Language::Zh, TimeRange::Days30) => "30天",
+            (Language::Zh, TimeRange::All) => "全部",
+            (Language::En, TimeRange::Today) => "Today",
+            (Language::En, TimeRange::Days7) => "7D",
+            (Language::En, TimeRange::Days30) => "30D",
+            (Language::En, TimeRange::All) => "All",
         }
     }
 }
@@ -396,6 +440,10 @@ pub struct AppConfig {
     pub single_monitor_mode: bool,
     #[serde(default = "default_true")]
     pub minimize_to_tray: bool,
+    #[serde(default)]
+    pub language: Language,
+    #[serde(default)]
+    pub theme: ThemeMode,
 }
 
 fn default_ma_window() -> usize {
@@ -416,6 +464,8 @@ impl Default for AppConfig {
             notifications_enabled: true,
             single_monitor_mode: true,
             minimize_to_tray: true,
+            language: Language::default(),
+            theme: ThemeMode::default(),
         }
     }
 }

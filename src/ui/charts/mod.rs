@@ -7,11 +7,12 @@ use iced::widget::canvas::{Frame, Path, Stroke, Text};
 use iced::widget::text;
 use iced::{Color, Point, Size, alignment};
 
-use crate::ui::theme;
+use crate::ui::theme::{self, UiPalette};
 
-/// Shared helper to draw a floating dark tooltip box that stays inside `bounds`.
+/// Shared helper to draw a floating tooltip box that stays inside `bounds`.
 pub fn draw_tooltip(
     frame: &mut Frame,
+    p: UiPalette,
     bounds: Size,
     anchor: Point,
     title: &str,
@@ -42,18 +43,18 @@ pub fn draw_tooltip(
     }
 
     let bg_path = Path::rounded_rectangle(Point::new(x, y), Size::new(box_w, box_h), 5.0.into());
-    frame.fill(&bg_path, theme::TOOLTIP_BG);
+    frame.fill(&bg_path, p.tooltip_bg);
     frame.stroke(
         &bg_path,
         Stroke::default()
-            .with_color(theme::BORDER_ACTIVE)
+            .with_color(p.border_active)
             .with_width(1.0),
     );
 
     frame.fill_text(Text {
         content: title.to_string(),
         position: Point::new(x + padding, y + padding),
-        color: theme::TEXT_PRIMARY,
+        color: p.text_primary,
         size: 10.5.into(),
         font: theme::FONT_BOLD,
         align_x: text::Alignment::Left,

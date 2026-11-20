@@ -5,18 +5,21 @@ use iced::widget::canvas::{self, Action, Cache, Event, Frame, Geometry, Path, St
 use iced::widget::text;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, alignment, mouse};
 
-use crate::model::DailyHeatmapCell;
+use crate::model::{DailyHeatmapCell, Language};
 use crate::ui::charts::draw_tooltip;
-use crate::ui::theme;
+use crate::ui::i18n::t;
+use crate::ui::theme::{self, UiPalette};
 
 pub struct HeatmapChart<'a> {
     pub cells: &'a [DailyHeatmapCell],
+    pub palette: UiPalette,
+    pub lang: Language,
     pub cache: &'a Cache,
 }
 
 #[derive(Default)]
 pub struct HeatmapState {
-    hovered_slot: Option<(usize, usize)>, // (week_col, day_row)
+    hovered_slot: Option<(usize, usize)>,
 }
 
 const WEEKS: usize = 18;
@@ -125,38 +128,38 @@ fn hit_test_slot(bounds: Rectangle, cursor: mouse::Cursor) -> Option<(usize, usi
     None
 }
 
-fn intensity_color(runs: u32) -> Color {
+fn intensity_color(p: UiPalette, runs: u32) -> Color {
     match runs {
-        0 => Color::from_rgb(0x1E as f32 / 255.0, 0x22 as f32 / 255.0, 0x2B as f32 / 255.0),
-        1..=2 => Color { a: 0.24, ..theme::ACCENT_BLUE },
-        3..=5 => Color { a: 0.48, ..theme::ACCENT_BLUE },
-        6..=10 => Color { a: 0.72, ..theme::ACCENT_BLUE },
-        _ => theme::ACCENT_BLUE,
+        0 => p.heatmap_empty,
+        1..=2 => Color { a: 0.28, ..p.accent_blue },
+        3..=5 => Color { a: 0.52, ..p.accent_blue },
+        6..=10 => Color { a: 0.76, ..p.accent_blue },
+        _ => p.accent_blue,
     }
 }
 
 impl<'a> HeatmapChart<'a> {
     fn cell_map(&self) -> HashMap<&str, &DailyHeatmapCell> {
-        self.cells
-            .iter()
-            .map(|c| (c.date_key.as_str(), c))
-            .collect()
+        self.cells.iter().map(|c| (c.date_key.as_str(), c)).collect()
     }
 
     fn draw_base(&self, frame: &mut Frame, size: Size) {
+        let p = self.palette;
         let (step, cell_size, _) = grid_metrics(size);
         let map = self.cell_map();
         let today = Local::now().date_naive();
 
-        // Weekday labels on left
-        let weekdays = [(0, "一"), (2, "三"), (4, "五"), (6, "日")];
+        let weekdays: [(usize, &str); 4] = match self.lang {
+            Language::Zh => [(0, "一"), (2, "三"), (4, "五"), (6, "日")],
+            Language::En => [(0, "M"), (2, "W"), (4, "F"), (6, "S")],
+        };
         for (row, label) in weekdays {
             let y = PAD_TOP + row as f32 * step + cell_size * 0.5;
             frame.fill_text(Text {
                 content: label.to_string(),
-                position: Point::new(PAD_LEFT - 8.0, y),
-                color: theme::TEXT_MUTED,
-                size: 10.0.into(),
+                position: Point::new(PAD_LEFT - 6.0, y),
+                color: p.text_muted,
+                size: 9.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Right,
                 align_y: alignment::Vertical::Center,
@@ -164,18 +167,21 @@ impl<'a> HeatmapChart<'a> {
             });
         }
 
-        // Month labels on top + cells
         let mut last_month = 0u32;
         for col in 0..WEEKS {
             let first_day = date_for_slot(col, 0);
             if first_day.month() != last_month {
                 last_month = first_day.month();
                 let x = PAD_LEFT + col as f32 * step;
+                let month_lbl = match self.lang {
+                    Language::Zh => format!("{}月", last_month),
+                    Language::En => format!("M{}", last_month),
+                };
                 frame.fill_text(Text {
-                    content: format!("{}月", last_month),
-                    position: Point::new(x, 4.0),
-                    color: theme::TEXT_MUTED,
-                    size: 10.5.into(),
+                    content: month_lbl,
+                    position: Point::new(x, 3.0),
+                    color: p.text_muted,
+                    size: 9.5.into(),
                     font: theme::FONT_REGULAR,
                     align_x: text::Alignment::Left,
                     align_y: alignment::Vertical::Top,
@@ -198,45 +204,48 @@ impl<'a> HeatmapChart<'a> {
                 let rect = Path::rounded_rectangle(
                     Point::new(x, y),
                     Size::new(cell_size, cell_size),
-                    3.0.into(),
+                    2.5.into(),
                 );
-                frame.fill(&rect, intensity_color(runs));
+                frame.fill(&rect, intensity_color(p, runs));
 
                 if has_pb {
                     frame.stroke(
                         &rect,
                         Stroke::default()
-                            .with_color(theme::SEMANTIC_GREEN)
+                            .with_color(p.semantic_green)
                             .with_width(1.2),
                     );
                 }
             }
         }
 
-        // Legend at bottom
-        let legend_y = PAD_TOP + 7.0 * step + 6.0;
+        let legend_y = PAD_TOP + 7.0 * step + 5.0;
         let levels = [0u32, 1, 4, 8, 12];
         let mut lx = PAD_LEFT;
         frame.fill_text(Text {
-            content: "少".to_string(),
+            content: t(self.lang, "少", "Less").to_string(),
             position: Point::new(lx, legend_y + 1.0),
-            color: theme::TEXT_MUTED,
-            size: 10.0.into(),
+            color: p.text_muted,
+            size: 9.5.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
             align_y: alignment::Vertical::Top,
             ..Text::default()
         });
-        lx += 18.0;
+        lx += if self.lang == Language::Zh { 16.0 } else { 26.0 };
         for lv in levels {
-            let r = Path::rounded_rectangle(Point::new(lx, legend_y + 2.0), Size::new(10.0, 10.0), 2.0.into());
-            frame.fill(&r, intensity_color(lv));
-            lx += 13.0;
+            let r = Path::rounded_rectangle(
+                Point::new(lx, legend_y + 2.0),
+                Size::new(9.5, 9.5),
+                2.0.into(),
+            );
+            frame.fill(&r, intensity_color(p, lv));
+            lx += 12.5;
         }
         frame.fill_text(Text {
-            content: "多  (绿框 = 刷新 PB)".to_string(),
+            content: t(self.lang, "多  (绿框 = PB)", "More (green = PB)").to_string(),
             position: Point::new(lx + 4.0, legend_y + 1.0),
-            color: theme::TEXT_MUTED,
+            color: p.text_muted,
             size: 9.5.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
@@ -246,6 +255,7 @@ impl<'a> HeatmapChart<'a> {
     }
 
     fn draw_hover(&self, frame: &mut Frame, size: Size, col: usize, row: usize) {
+        let p = self.palette;
         let (step, cell_size, _) = grid_metrics(size);
         let x = PAD_LEFT + col as f32 * step;
         let y = PAD_TOP + row as f32 * step;
@@ -253,13 +263,11 @@ impl<'a> HeatmapChart<'a> {
         let highlight = Path::rounded_rectangle(
             Point::new(x - 1.0, y - 1.0),
             Size::new(cell_size + 2.0, cell_size + 2.0),
-            3.5.into(),
+            3.0.into(),
         );
         frame.stroke(
             &highlight,
-            Stroke::default()
-                .with_color(theme::TEXT_PRIMARY)
-                .with_width(1.4),
+            Stroke::default().with_color(p.text_primary).with_width(1.4),
         );
 
         let date = date_for_slot(col, row);
@@ -270,20 +278,31 @@ impl<'a> HeatmapChart<'a> {
         let lines = match cell {
             Some(c) if c.run_count > 0 => {
                 let mins = c.total_duration_s / 60.0;
-                vec![
-                    (format!("训练局数: {} 局 ({} 项目)", c.run_count, c.unique_scenarios), theme::TEXT_PRIMARY),
-                    (format!("有效时长: {:.1} 分钟", mins), theme::TEXT_SECONDARY),
-                    (
-                        format!("当日新 PB: {}", c.new_pbs),
-                        if c.new_pbs > 0 { theme::SEMANTIC_GREEN } else { theme::TEXT_MUTED },
-                    ),
-                ]
+                match self.lang {
+                    Language::Zh => vec![
+                        (format!("训练局数: {} 局 ({} 项目)", c.run_count, c.unique_scenarios), p.text_primary),
+                        (format!("有效时长: {:.1} 分钟", mins), p.text_secondary),
+                        (
+                            format!("当日新 PB: {}", c.new_pbs),
+                            if c.new_pbs > 0 { p.semantic_green } else { p.text_muted },
+                        ),
+                    ],
+                    Language::En => vec![
+                        (format!("Runs: {} ({} scenarios)", c.run_count, c.unique_scenarios), p.text_primary),
+                        (format!("Duration: {:.1} min", mins), p.text_secondary),
+                        (
+                            format!("New PBs: {}", c.new_pbs),
+                            if c.new_pbs > 0 { p.semantic_green } else { p.text_muted },
+                        ),
+                    ],
+                }
             }
-            _ => vec![("当日无训练记录".to_string(), theme::TEXT_MUTED)],
+            _ => vec![(t(self.lang, "当日无训练记录", "No runs recorded").to_string(), p.text_muted)],
         };
 
         draw_tooltip(
             frame,
+            p,
             size,
             Point::new(x + cell_size * 0.5, y + cell_size * 0.5),
             &key,

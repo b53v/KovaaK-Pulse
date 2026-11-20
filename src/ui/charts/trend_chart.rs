@@ -2,14 +2,17 @@ use iced::widget::canvas::{self, Action, Cache, Event, Frame, Geometry, LineDash
 use iced::widget::text;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, alignment, mouse};
 
-use crate::model::{TrendAnalysis, TrendMetric, TrendPoint};
+use crate::model::{Language, TrendAnalysis, TrendMetric, TrendPoint};
 use crate::ui::charts::draw_tooltip;
-use crate::ui::theme;
+use crate::ui::i18n::t;
+use crate::ui::theme::{self, UiPalette};
 
 pub struct TrendChart<'a> {
     pub analysis: &'a TrendAnalysis,
     pub metric: TrendMetric,
     pub ma_window: usize,
+    pub palette: UiPalette,
+    pub lang: Language,
     pub cache: &'a Cache,
 }
 
@@ -150,15 +153,16 @@ impl<'a> TrendChart<'a> {
     }
 
     fn draw_base(&self, frame: &mut Frame, size: Size) {
+        let p = self.palette;
         let plot_w = (size.width - PAD_LEFT - PAD_RIGHT).max(1.0);
         let plot_h = (size.height - PAD_TOP - PAD_BOTTOM).max(1.0);
 
         if self.analysis.points.is_empty() {
             frame.fill_text(Text {
-                content: "该时间范围内暂无对局数据".to_string(),
+                content: t(self.lang, "该时间范围内暂无对局数据", "No runs in this time range").to_string(),
                 position: Point::new(size.width * 0.5, size.height * 0.5),
-                color: theme::TEXT_MUTED,
-                size: 13.0.into(),
+                color: p.text_muted,
+                size: 11.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
                 align_y: alignment::Vertical::Center,
@@ -169,7 +173,6 @@ impl<'a> TrendChart<'a> {
 
         let (y_min, y_max) = self.y_bounds();
 
-        // Horizontal grid & Y labels
         let grid_steps = 4;
         for i in 0..=grid_steps {
             let frac = i as f32 / grid_steps as f32;
@@ -177,14 +180,14 @@ impl<'a> TrendChart<'a> {
             let line = Path::line(Point::new(PAD_LEFT, y), Point::new(PAD_LEFT + plot_w, y));
             frame.stroke(
                 &line,
-                Stroke::default().with_color(theme::GRID_LINE).with_width(1.0),
+                Stroke::default().with_color(p.grid_line).with_width(1.0),
             );
             let v = y_max - (y_max - y_min) * frac as f64;
             frame.fill_text(Text {
                 content: self.format_metric_val(v),
                 position: Point::new(PAD_LEFT - 6.0, y),
-                color: theme::TEXT_MUTED,
-                size: 10.5.into(),
+                color: p.text_muted,
+                size: 10.0.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Right,
                 align_y: alignment::Vertical::Center,
@@ -192,15 +195,14 @@ impl<'a> TrendChart<'a> {
             });
         }
 
-        // Sensitivity (cm/360) change vertical markers (subtle muted amber/gray)
         for (i, pt) in self.analysis.points.iter().enumerate() {
             if pt.sens_changed {
-                let p = self.point_xy(size, i, pt.value);
-                let vline = Path::line(Point::new(p.x, PAD_TOP), Point::new(p.x, PAD_TOP + plot_h));
+                let xy = self.point_xy(size, i, pt.value);
+                let vline = Path::line(Point::new(xy.x, PAD_TOP), Point::new(xy.x, PAD_TOP + plot_h));
                 frame.stroke(
                     &vline,
                     Stroke {
-                        style: Style::Solid(Color { a: 0.48, ..theme::SEMANTIC_AMBER }),
+                        style: Style::Solid(Color { a: 0.48, ..p.semantic_amber }),
                         width: 1.0,
                         line_dash: LineDash {
                             segments: &[3.0, 3.0],
@@ -212,8 +214,8 @@ impl<'a> TrendChart<'a> {
                 if let Some(cm) = pt.cm_per_360 {
                     frame.fill_text(Text {
                         content: format!("{:.1}cm", cm),
-                        position: Point::new(p.x + 3.0, PAD_TOP + 2.0),
-                        color: theme::TEXT_MUTED,
+                        position: Point::new(xy.x + 3.0, PAD_TOP + 2.0),
+                        color: p.text_muted,
                         size: 9.0.into(),
                         font: theme::FONT_REGULAR,
                         align_x: text::Alignment::Left,
@@ -224,25 +226,24 @@ impl<'a> TrendChart<'a> {
             }
         }
 
-        // PB step envelope line (subtle dashed neutral gray)
         if self.analysis.points.len() >= 2 {
             let pb_path = Path::new(|b| {
                 let mut prev_y = 0.0_f32;
                 for (i, pt) in self.analysis.points.iter().enumerate() {
-                    let p = self.point_xy(size, i, pt.pb_envelope);
+                    let xy = self.point_xy(size, i, pt.pb_envelope);
                     if i == 0 {
-                        b.move_to(p);
+                        b.move_to(xy);
                     } else {
-                        b.line_to(Point::new(p.x, prev_y));
-                        b.line_to(p);
+                        b.line_to(Point::new(xy.x, prev_y));
+                        b.line_to(xy);
                     }
-                    prev_y = p.y;
+                    prev_y = xy.y;
                 }
             });
             frame.stroke(
                 &pb_path,
                 Stroke {
-                    style: Style::Solid(Color { a: 0.55, ..theme::TEXT_SECONDARY }),
+                    style: Style::Solid(Color { a: 0.55, ..p.text_secondary }),
                     width: 1.2,
                     line_dash: LineDash {
                         segments: &[5.0, 3.0],
@@ -253,46 +254,41 @@ impl<'a> TrendChart<'a> {
             );
         }
 
-        // Moving average polyline (calm slate-blue primary accent)
         let ma_path = Path::new(|b| {
             let mut started = false;
             for (i, pt) in self.analysis.points.iter().enumerate() {
                 if let Some(ma) = pt.ma_value {
-                    let p = self.point_xy(size, i, ma);
+                    let xy = self.point_xy(size, i, ma);
                     if !started {
-                        b.move_to(p);
+                        b.move_to(xy);
                         started = true;
                     } else {
-                        b.line_to(p);
+                        b.line_to(xy);
                     }
                 }
             }
         });
         frame.stroke(
             &ma_path,
-            Stroke::default()
-                .with_color(theme::ACCENT_BLUE)
-                .with_width(2.0),
+            Stroke::default().with_color(p.accent_blue).with_width(2.0),
         );
 
-        // Scatter points for each run
         for (i, pt) in self.analysis.points.iter().enumerate() {
-            let p = self.point_xy(size, i, pt.value);
+            let xy = self.point_xy(size, i, pt.value);
             if pt.is_pb {
-                let dot = Path::circle(p, 3.4);
-                frame.fill(&dot, theme::SEMANTIC_GREEN);
+                let dot = Path::circle(xy, 3.4);
+                frame.fill(&dot, p.semantic_green);
             } else {
-                let dot = Path::circle(p, 2.5);
-                frame.fill(&dot, Color { a: 0.55, ..theme::TEXT_SECONDARY });
+                let dot = Path::circle(xy, 2.5);
+                frame.fill(&dot, Color { a: 0.55, ..p.text_secondary });
             }
         }
 
-        // X-axis date labels
         let n = self.analysis.points.len();
         let label_step = (n / 4).max(1);
         for i in (0..n).step_by(label_step) {
             let pt = &self.analysis.points[i];
-            let p = self.point_xy(size, i, pt.value);
+            let xy = self.point_xy(size, i, pt.value);
             let short_date = if pt.date_key.len() >= 10 {
                 &pt.date_key[5..10]
             } else {
@@ -300,8 +296,8 @@ impl<'a> TrendChart<'a> {
             };
             frame.fill_text(Text {
                 content: short_date.to_string(),
-                position: Point::new(p.x, PAD_TOP + plot_h + 6.0),
-                color: theme::TEXT_MUTED,
+                position: Point::new(xy.x, PAD_TOP + plot_h + 6.0),
+                color: p.text_muted,
                 size: 9.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
@@ -310,14 +306,14 @@ impl<'a> TrendChart<'a> {
             });
         }
 
-        // Legend
+        let legend = match self.lang {
+            Language::Zh => format!("● 单局  ━ MA{}  -- PB  ┊ cm/360", self.ma_window),
+            Language::En => format!("● Run  ━ MA{}  -- PB  ┊ cm/360", self.ma_window),
+        };
         frame.fill_text(Text {
-            content: format!(
-                "● 单局  ━ MA{}  -- PB  ┊ cm/360",
-                self.ma_window
-            ),
+            content: legend,
             position: Point::new(PAD_LEFT, 2.0),
-            color: theme::TEXT_SECONDARY,
+            color: p.text_secondary,
             size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
@@ -327,23 +323,22 @@ impl<'a> TrendChart<'a> {
     }
 
     fn draw_hover(&self, frame: &mut Frame, size: Size, idx: usize, pt: &TrendPoint) {
+        let p = self.palette;
         let plot_h = (size.height - PAD_TOP - PAD_BOTTOM).max(1.0);
-        let p = self.point_xy(size, idx, pt.value);
+        let xy = self.point_xy(size, idx, pt.value);
 
-        let vline = Path::line(Point::new(p.x, PAD_TOP), Point::new(p.x, PAD_TOP + plot_h));
+        let vline = Path::line(Point::new(xy.x, PAD_TOP), Point::new(xy.x, PAD_TOP + plot_h));
         frame.stroke(
             &vline,
-            Stroke::default()
-                .with_color(theme::CROSSHAIR_LINE)
-                .with_width(1.2),
+            Stroke::default().with_color(p.crosshair_line).with_width(1.2),
         );
 
-        let ring = Path::circle(p, 5.5);
-        frame.fill(&ring, theme::BG_BASE);
+        let ring = Path::circle(xy, 5.5);
+        frame.fill(&ring, p.bg_base);
         frame.stroke(
             &ring,
             Stroke::default()
-                .with_color(if pt.is_pb { theme::SEMANTIC_GREEN } else { theme::ACCENT_BLUE })
+                .with_color(if pt.is_pb { p.semantic_green } else { p.accent_blue })
                 .with_width(1.8),
         );
 
@@ -351,40 +346,46 @@ impl<'a> TrendChart<'a> {
             (
                 format!(
                     "{}: {}{}",
-                    self.metric.label(),
+                    self.metric.label_i18n(self.lang),
                     self.format_metric_val(pt.value),
                     if pt.is_pb { "  [PB]" } else { "" }
                 ),
-                if pt.is_pb { theme::SEMANTIC_GREEN } else { theme::TEXT_PRIMARY },
+                if pt.is_pb { p.semantic_green } else { p.text_primary },
             ),
             (
-                format!("得分: {:.1}   准度: {:.1}%   KPS: {:.2}", pt.score, pt.accuracy, pt.kps),
-                theme::TEXT_SECONDARY,
+                match self.lang {
+                    Language::Zh => format!("得分: {:.1}  准度: {:.1}%  KPS: {:.2}", pt.score, pt.accuracy, pt.kps),
+                    Language::En => format!("Score: {:.1}  Acc: {:.1}%  KPS: {:.2}", pt.score, pt.accuracy, pt.kps),
+                },
+                p.text_secondary,
             ),
             (
-                format!("TTK: {:.0}ms   1-Shot: {:.1}%", pt.avg_ttk_ms, pt.one_shot_pct),
-                theme::TEXT_MUTED,
+                format!("TTK: {:.0}ms  1-Shot: {:.1}%", pt.avg_ttk_ms, pt.one_shot_pct),
+                p.text_muted,
             ),
         ];
 
         if let Some(ma) = pt.ma_value {
             lines.push((
-                format!("MA{}: {}   PB: {}", self.ma_window, self.format_metric_val(ma), self.format_metric_val(pt.pb_envelope)),
-                theme::ACCENT_BLUE,
+                format!("MA{}: {}  PB: {}", self.ma_window, self.format_metric_val(ma), self.format_metric_val(pt.pb_envelope)),
+                p.accent_blue,
             ));
         }
 
         if let Some(cm) = pt.cm_per_360 {
-            let tag = if pt.sens_changed { " (变更)" } else { "" };
-            lines.push((format!("cm/360: {:.2} cm{}", cm, tag), theme::TEXT_MUTED));
+            let tag = if pt.sens_changed {
+                t(self.lang, " (变更)", " (changed)")
+            } else {
+                ""
+            };
+            lines.push((format!("cm/360: {:.2} cm{}", cm, tag), p.text_muted));
         }
 
-        draw_tooltip(
-            frame,
-            size,
-            p,
-            &format!("第 #{} 局  {}", idx + 1, pt.played_at),
-            &lines,
-        );
+        let title = match self.lang {
+            Language::Zh => format!("第 #{} 局  {}", idx + 1, pt.played_at),
+            Language::En => format!("Run #{}  {}", idx + 1, pt.played_at),
+        };
+
+        draw_tooltip(frame, p, size, xy, &title, &lines);
     }
 }

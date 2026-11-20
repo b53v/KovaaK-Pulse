@@ -17,6 +17,7 @@ fn main() -> iced::Result {
         .window(window::Settings {
             size: Size::new(380.0, 560.0),
             min_size: Some(Size::new(340.0, 400.0)),
+            icon: ui::tray::build_window_icon(),
             resizable: true,
             exit_on_close_request: false,
             ..window::Settings::default()

@@ -23,9 +23,9 @@ impl TrayController {
     /// Gracefully degrades to a no-op controller if the platform tray is unavailable.
     pub fn new() -> Self {
         let menu = Menu::new();
-        let show_item = MenuItem::new("打开 KovaaK Pulse", true, None);
-        let sync_item = MenuItem::new("立即同步本地记录", true, None);
-        let quit_item = MenuItem::new("退出", true, None);
+        let show_item = MenuItem::new("打开 / Show KovaaK Pulse", true, None);
+        let sync_item = MenuItem::new("立即同步 / Sync Now", true, None);
+        let quit_item = MenuItem::new("退出 / Quit", true, None);
 
         let show_id = show_item.id().clone();
         let sync_id = sync_item.id().clone();
@@ -35,12 +35,12 @@ impl TrayController {
         let _ = menu.append(&sync_item);
         let _ = menu.append(&quit_item);
 
-        let icon = build_reticle_icon();
+        let icon = build_tray_icon();
 
         let tray = match icon {
             Some(ic) => TrayIconBuilder::new()
                 .with_menu(Box::new(menu))
-                .with_tooltip("KovaaK Pulse — 静默监测中")
+                .with_tooltip("KovaaK Pulse")
                 .with_icon(ic)
                 .build()
                 .ok(),
@@ -98,54 +98,78 @@ impl TrayController {
     }
 }
 
-/// Generates a crisp 32x32 RGBA esports reticle icon in memory (zero external assets).
-fn build_reticle_icon() -> Option<Icon> {
-    const SIZE: usize = 32;
-    let mut rgba = vec![0u8; SIZE * SIZE * 4];
-    let center = (SIZE as f32 - 1.0) / 2.0;
+/// Generates a crisp `size x size` RGBA rounded-rect dark slate (`#0F1115`) icon
+/// with a clean `#60A5FA` crosshair reticle and center dot.
+pub fn reticle_rgba(size: u32) -> Vec<u8> {
+    let s = size as usize;
+    let mut rgba = vec![0u8; s * s * 4];
+    let center = (s as f32 - 1.0) / 2.0;
+    let half = s as f32 * 0.5;
+    let corner_r = (s as f32 * 0.22).max(2.0);
+    let inner_limit = half - corner_r - 0.5;
 
-    for y in 0..SIZE {
-        for x in 0..SIZE {
+    let ring_r = s as f32 * 0.30;
+    let ring_w = (s as f32 * 0.055).max(1.1);
+    let tick_half_w = (s as f32 * 0.036).max(0.85);
+    let tick_inner = s as f32 * 0.16;
+    let tick_outer = s as f32 * 0.40;
+    let dot_r = (s as f32 * 0.08).max(1.4);
+
+    for y in 0..s {
+        for x in 0..s {
             let dx = x as f32 - center;
             let dy = y as f32 - center;
+            let ax = dx.abs();
+            let ay = dy.abs();
+
+            // Signed distance to rounded rectangle
+            let qx = (ax - inner_limit).max(0.0);
+            let qy = (ay - inner_limit).max(0.0);
+            let rr_dist = (qx * qx + qy * qy).sqrt() - corner_r;
+
+            let idx = (y * s + x) * 4;
+            if rr_dist > 0.5 {
+                continue;
+            }
+
+            // Dark rounded-rect background (#0F1115) with subtle border (#252A34)
+            if rr_dist > -1.2 {
+                rgba[idx] = 0x25;
+                rgba[idx + 1] = 0x2A;
+                rgba[idx + 2] = 0x34;
+                rgba[idx + 3] = 0xFF;
+            } else {
+                rgba[idx] = 0x0F;
+                rgba[idx + 1] = 0x11;
+                rgba[idx + 2] = 0x15;
+                rgba[idx + 3] = 0xFF;
+            }
+
             let dist = (dx * dx + dy * dy).sqrt();
-            let idx = (y * SIZE + x) * 4;
+            let on_ring = (dist - ring_r).abs() <= ring_w;
+            let on_h = ay <= tick_half_w && ax >= tick_inner && ax <= tick_outer;
+            let on_v = ax <= tick_half_w && ay >= tick_inner && ay <= tick_outer;
+            let on_dot = dist <= dot_r;
 
-            // Dark circular badge background
-            if dist <= 15.0 {
-                rgba[idx] = 0x0D;
-                rgba[idx + 1] = 0x10;
-                rgba[idx + 2] = 0x17;
-                rgba[idx + 3] = 0xFF;
-            }
-
-            // Outer cyan ring
-            if (dist - 12.2).abs() <= 1.35 {
-                rgba[idx] = 0x00;
-                rgba[idx + 1] = 0xD4;
-                rgba[idx + 2] = 0xFF;
-                rgba[idx + 3] = 0xFF;
-            }
-
-            // Crosshair ticks
-            let on_h = dy.abs() <= 1.0 && dx.abs() >= 5.0 && dx.abs() <= 14.5;
-            let on_v = dx.abs() <= 1.0 && dy.abs() >= 5.0 && dy.abs() <= 14.5;
-            if on_h || on_v {
-                rgba[idx] = 0x00;
-                rgba[idx + 1] = 0xD4;
-                rgba[idx + 2] = 0xFF;
-                rgba[idx + 3] = 0xFF;
-            }
-
-            // Center green pulse dot
-            if dist <= 2.4 {
-                rgba[idx] = 0x22;
-                rgba[idx + 1] = 0xC5;
-                rgba[idx + 2] = 0x5E;
+            if on_ring || on_h || on_v || on_dot {
+                rgba[idx] = 0x60;
+                rgba[idx + 1] = 0xA5;
+                rgba[idx + 2] = 0xFA;
                 rgba[idx + 3] = 0xFF;
             }
         }
     }
 
-    Icon::from_rgba(rgba, SIZE as u32, SIZE as u32).ok()
+    rgba
+}
+
+fn build_tray_icon() -> Option<Icon> {
+    let rgba = reticle_rgba(32);
+    Icon::from_rgba(rgba, 32, 32).ok()
+}
+
+/// Builds the 64x64 window/taskbar icon for `iced::window::Settings`.
+pub fn build_window_icon() -> Option<iced::window::Icon> {
+    let rgba = reticle_rgba(64);
+    iced::window::icon::from_rgba(rgba, 64, 64).ok()
 }

@@ -2,9 +2,10 @@ use iced::widget::canvas::{self, Action, Cache, Event, Frame, Geometry, LineDash
 use iced::widget::text;
 use iced::{Color, Point, Rectangle, Renderer, Size, Theme, alignment, mouse};
 
-use crate::model::PerfTick;
+use crate::model::{Language, PerfTick};
 use crate::ui::charts::draw_tooltip;
-use crate::ui::theme;
+use crate::ui::i18n::{bar_mode_label, t};
+use crate::ui::theme::{self, UiPalette};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PerSecondBarMode {
@@ -20,20 +21,14 @@ impl PerSecondBarMode {
         PerSecondBarMode::Kps,
         PerSecondBarMode::DamageEff,
     ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            PerSecondBarMode::Score => "得分",
-            PerSecondBarMode::Kps => "KPS",
-            PerSecondBarMode::DamageEff => "效率%",
-        }
-    }
 }
 
 pub struct PerSecondChart<'a> {
     pub ticks: &'a [PerfTick],
     pub mode: PerSecondBarMode,
     pub avg_accuracy: f64,
+    pub palette: UiPalette,
+    pub lang: Language,
     pub cache: &'a Cache,
 }
 
@@ -168,15 +163,21 @@ impl<'a> PerSecondChart<'a> {
     }
 
     fn draw_base(&self, frame: &mut Frame, size: Size) {
+        let p = self.palette;
         let plot_w = (size.width - PAD_LEFT - PAD_RIGHT).max(1.0);
         let plot_h = (size.height - PAD_TOP - PAD_BOTTOM).max(1.0);
 
         if self.ticks.is_empty() {
             frame.fill_text(Text {
-                content: "当前对局无 .perf 逐秒采样数据（仅 CSV 摘要模式）".to_string(),
+                content: t(
+                    self.lang,
+                    "当前对局无 .perf 逐秒数据（仅 CSV 摘要）",
+                    "No .perf per-second samples (CSV summary only)",
+                )
+                .to_string(),
                 position: Point::new(size.width * 0.5, size.height * 0.5),
-                color: theme::TEXT_MUTED,
-                size: 13.0.into(),
+                color: p.text_muted,
+                size: 11.5.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Center,
                 align_y: alignment::Vertical::Center,
@@ -196,7 +197,6 @@ impl<'a> PerSecondChart<'a> {
             PAD_TOP + plot_h * (1.0 - norm)
         };
 
-        // Horizontal grid lines + Left/Right Y-axis labels
         let grid_steps = 4;
         for i in 0..=grid_steps {
             let frac = i as f32 / grid_steps as f32;
@@ -204,7 +204,7 @@ impl<'a> PerSecondChart<'a> {
             let grid_path = Path::line(Point::new(PAD_LEFT, y), Point::new(PAD_LEFT + plot_w, y));
             frame.stroke(
                 &grid_path,
-                Stroke::default().with_color(theme::GRID_LINE).with_width(1.0),
+                Stroke::default().with_color(p.grid_line).with_width(1.0),
             );
 
             let left_val = y_max - (y_max - y_min) * frac as f64;
@@ -216,8 +216,8 @@ impl<'a> PerSecondChart<'a> {
             frame.fill_text(Text {
                 content: left_label,
                 position: Point::new(PAD_LEFT - 6.0, y),
-                color: theme::TEXT_MUTED,
-                size: 10.5.into(),
+                color: p.text_muted,
+                size: 10.0.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Right,
                 align_y: alignment::Vertical::Center,
@@ -228,7 +228,7 @@ impl<'a> PerSecondChart<'a> {
             frame.fill_text(Text {
                 content: format!("{:.0}%", right_acc),
                 position: Point::new(PAD_LEFT + plot_w + 6.0, y),
-                color: theme::TEXT_MUTED,
+                color: p.text_muted,
                 size: 10.0.into(),
                 font: theme::FONT_REGULAR,
                 align_x: text::Alignment::Left,
@@ -237,7 +237,6 @@ impl<'a> PerSecondChart<'a> {
             });
         }
 
-        // Zero baseline if negative values exist
         let zero_y = map_left_y(0.0);
         if y_min < 0.0 {
             let zero_path = Path::line(
@@ -246,13 +245,10 @@ impl<'a> PerSecondChart<'a> {
             );
             frame.stroke(
                 &zero_path,
-                Stroke::default()
-                    .with_color(theme::BORDER_ACTIVE)
-                    .with_width(1.0),
+                Stroke::default().with_color(p.border_active).with_width(1.0),
             );
         }
 
-        // Bars
         let n = self.ticks.len();
         let step = plot_w / n as f32;
         let bar_w = (step * 0.62).clamp(3.0, 22.0);
@@ -268,9 +264,9 @@ impl<'a> PerSecondChart<'a> {
             };
 
             let bar_color = if val < 0.0 {
-                Color { a: 0.80, ..theme::SEMANTIC_RED }
+                Color { a: 0.80, ..p.semantic_red }
             } else {
-                Color { a: 0.65, ..theme::ACCENT_BLUE }
+                Color { a: 0.65, ..p.accent_blue }
             };
 
             let rect = Path::rounded_rectangle(
@@ -281,7 +277,6 @@ impl<'a> PerSecondChart<'a> {
             frame.fill(&rect, bar_color);
         }
 
-        // Average accuracy dashed reference line
         let avg_y = map_acc_y(self.avg_accuracy);
         let avg_line = Path::line(
             Point::new(PAD_LEFT, avg_y),
@@ -290,7 +285,7 @@ impl<'a> PerSecondChart<'a> {
         frame.stroke(
             &avg_line,
             Stroke {
-                style: Style::Solid(Color { a: 0.35, ..theme::TEXT_SECONDARY }),
+                style: Style::Solid(Color { a: 0.35, ..p.text_secondary }),
                 width: 1.0,
                 line_dash: LineDash {
                     segments: &[4.0, 4.0],
@@ -300,7 +295,6 @@ impl<'a> PerSecondChart<'a> {
             },
         );
 
-        // Accuracy polyline (crisp off-white/silver)
         let acc_path = Path::new(|builder| {
             for (i, tick) in self.ticks.iter().enumerate() {
                 let cx = PAD_LEFT + (i as f32 + 0.5) * step;
@@ -315,19 +309,17 @@ impl<'a> PerSecondChart<'a> {
         frame.stroke(
             &acc_path,
             Stroke::default()
-                .with_color(theme::CHART_LINE_SILVER)
+                .with_color(p.chart_line_secondary)
                 .with_width(1.8),
         );
 
-        // Subtle dots on accuracy line
         for (i, tick) in self.ticks.iter().enumerate() {
             let cx = PAD_LEFT + (i as f32 + 0.5) * step;
             let ay = map_acc_y(tick.accuracy);
             let dot = Path::circle(Point::new(cx, ay), 2.2);
-            frame.fill(&dot, theme::CHART_LINE_SILVER);
+            frame.fill(&dot, p.chart_line_secondary);
         }
 
-        // X-axis tick labels
         let label_every = (n / 6).max(1);
         for (i, tick) in self.ticks.iter().enumerate() {
             if i % label_every == 0 || i == n - 1 {
@@ -335,7 +327,7 @@ impl<'a> PerSecondChart<'a> {
                 frame.fill_text(Text {
                     content: format!("{}s", tick.time_offset_s.round() as i32),
                     position: Point::new(cx, PAD_TOP + plot_h + 6.0),
-                    color: theme::TEXT_MUTED,
+                    color: p.text_muted,
                     size: 9.5.into(),
                     font: theme::FONT_REGULAR,
                     align_x: text::Alignment::Center,
@@ -345,11 +337,14 @@ impl<'a> PerSecondChart<'a> {
             }
         }
 
-        // Top legend
+        let legend = match self.lang {
+            Language::Zh => format!("■ {}  ● 准度% (均{:.0}%)", bar_mode_label(self.mode, self.lang), self.avg_accuracy),
+            Language::En => format!("■ {}  ● Acc% (avg {:.0}%)", bar_mode_label(self.mode, self.lang), self.avg_accuracy),
+        };
         frame.fill_text(Text {
-            content: format!("■ {}  ● 准度% (均{:.0}%)", self.mode.label(), self.avg_accuracy),
+            content: legend,
             position: Point::new(PAD_LEFT, 2.0),
-            color: theme::TEXT_SECONDARY,
+            color: p.text_secondary,
             size: 10.0.into(),
             font: theme::FONT_REGULAR,
             align_x: text::Alignment::Left,
@@ -359,6 +354,7 @@ impl<'a> PerSecondChart<'a> {
     }
 
     fn draw_hover(&self, frame: &mut Frame, size: Size, idx: usize, tick: &PerfTick) {
+        let p = self.palette;
         let plot_w = (size.width - PAD_LEFT - PAD_RIGHT).max(1.0);
         let plot_h = (size.height - PAD_TOP - PAD_BOTTOM).max(1.0);
         let step = plot_w / self.ticks.len() as f32;
@@ -370,39 +366,45 @@ impl<'a> PerSecondChart<'a> {
         );
         frame.stroke(
             &crosshair,
-            Stroke::default()
-                .with_color(theme::CROSSHAIR_LINE)
-                .with_width(1.2),
+            Stroke::default().with_color(p.crosshair_line).with_width(1.2),
         );
 
         let acc_y = PAD_TOP + plot_h * (1.0 - (tick.accuracy / 100.0).clamp(0.0, 1.0) as f32);
         let ring = Path::circle(Point::new(cx, acc_y), 4.5);
-        frame.fill(&ring, theme::BG_BASE);
+        frame.fill(&ring, p.bg_base);
         frame.stroke(
             &ring,
             Stroke::default()
-                .with_color(theme::CHART_LINE_SILVER)
+                .with_color(p.chart_line_secondary)
                 .with_width(1.8),
         );
 
         let score_color = if tick.score < 0.0 {
-            theme::SEMANTIC_RED
+            p.semantic_red
         } else {
-            theme::TEXT_PRIMARY
+            p.text_primary
         };
-        let lines = vec![
-            (format!("得分: {:+.1}", tick.score), score_color),
-            (format!("击杀: {}   命中/开火: {}/{}", tick.kills, tick.shots_hit, tick.shots_fired), theme::TEXT_PRIMARY),
-            (format!("准度: {:.1}%   失误: {}", tick.accuracy, tick.shots_missed), theme::TEXT_SECONDARY),
-            (format!("过射: {}   伤害: {:.0}/{:.0}", tick.overshots, tick.damage_done, tick.damage_possible), theme::TEXT_MUTED),
-        ];
+        let (title, lines) = match self.lang {
+            Language::Zh => (
+                format!("第 {} 秒 (#{})", tick.time_offset_s.round() as i32, tick.tick_index + 1),
+                vec![
+                    (format!("得分: {:+.1}", tick.score), score_color),
+                    (format!("击杀: {}  命中: {}/{}", tick.kills, tick.shots_hit, tick.shots_fired), p.text_primary),
+                    (format!("准度: {:.1}%  失误: {}", tick.accuracy, tick.shots_missed), p.text_secondary),
+                    (format!("过射: {}  伤害: {:.0}/{:.0}", tick.overshots, tick.damage_done, tick.damage_possible), p.text_muted),
+                ],
+            ),
+            Language::En => (
+                format!("Sec {} (#{})", tick.time_offset_s.round() as i32, tick.tick_index + 1),
+                vec![
+                    (format!("Score: {:+.1}", tick.score), score_color),
+                    (format!("Kills: {}  Hits: {}/{}", tick.kills, tick.shots_hit, tick.shots_fired), p.text_primary),
+                    (format!("Acc: {:.1}%  Miss: {}", tick.accuracy, tick.shots_missed), p.text_secondary),
+                    (format!("Overshots: {}  Dmg: {:.0}/{:.0}", tick.overshots, tick.damage_done, tick.damage_possible), p.text_muted),
+                ],
+            ),
+        };
 
-        draw_tooltip(
-            frame,
-            size,
-            Point::new(cx, acc_y),
-            &format!("第 {} 秒 (Tick #{})", tick.time_offset_s.round() as i32, tick.tick_index + 1),
-            &lines,
-        );
+        draw_tooltip(frame, p, size, Point::new(cx, acc_y), &title, &lines);
     }
 }
