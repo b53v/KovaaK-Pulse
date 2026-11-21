@@ -1,5 +1,10 @@
 # KovaaK Pulse
 
+[![Release](https://img.shields.io/github/v/release/b53v/KovaaK-Pulse?include_prereleases&style=flat-square)](https://github.com/b53v/KovaaK-Pulse/releases)
+[![Rust](https://img.shields.io/badge/Rust-1.85+-000000?style=flat-square&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20x64-0078D6?style=flat-square)](https://github.com/b53v/KovaaK-Pulse/releases)
+[![License](https://img.shields.io/github/license/b53v/KovaaK-Pulse?style=flat-square)](LICENSE)
+
 轻量级 KovaaK's 成绩监听与复盘工具。Windows 单文件 `.exe`（约 7 MB，常驻内存 ~24 MB），打完一局后自动解析成绩并刷新图表。
 
 ## 功能
